@@ -6,6 +6,7 @@ import { sanitizeBody } from "../content/sanitize.ts";
 import { identityKeyForUrl } from "../lib/url.ts";
 import { sha256, stableJson } from "../lib/ids.ts";
 import { FetchError, type Candidate, type SourceRow } from "./types.ts";
+import { parseLooseDate } from "./web-list.ts";
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -37,8 +38,9 @@ function arr<T>(v: T | T[] | undefined | null): T[] {
   return Array.isArray(v) ? v : [v];
 }
 
-function parseDate(v: string): Date | null {
+function parseDate(v: string, utcOffset?: string): Date | null {
   if (!v) return null;
+  if (utcOffset) return parseLooseDate(v, utcOffset);
   const t = Date.parse(v);
   if (Number.isFinite(t)) return new Date(t);
   // RFC 822 variants with Chinese weekday or odd zones
@@ -170,7 +172,7 @@ export async function fetchRss(source: SourceRow, opts: { force?: boolean } = {}
         ...identity(link),
         title,
         author: text(it["dc:creator"]) || text(it.author) || null,
-        publishedAt: parseDate(text(it.pubDate) || text(it["dc:date"]) || text(it.published)),
+        publishedAt: parseDate(text(it.pubDate) || text(it["dc:date"]) || text(it.published), source.config.publishedAtUtcOffset),
         ...feedText(bodyHtml, description, source),
         media: media.slice(0, 6),
         categories: arr(it.category).map((c) => text(c)).filter(Boolean),
@@ -195,8 +197,8 @@ export async function fetchRss(source: SourceRow, opts: { force?: boolean } = {}
         ...identity(entryUrl),
         title,
         author: text(arr(e.author)[0]?.name) || null,
-        publishedAt: parseDate(text(e.published) || text(e.updated)),
-        sourceUpdatedAt: parseDate(text(e.updated)),
+        publishedAt: parseDate(text(e.published) || text(e.updated), source.config.publishedAtUtcOffset),
+        sourceUpdatedAt: parseDate(text(e.updated), source.config.publishedAtUtcOffset),
         ...feedText(bodyHtml, summary, source),
         media: content ? imagesFrom(content, link) : [],
         categories: arr(e.category).map((c: any) => c?.["@term"] ?? text(c)).filter(Boolean),

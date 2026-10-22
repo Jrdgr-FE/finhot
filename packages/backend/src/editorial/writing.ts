@@ -4,10 +4,22 @@
 import { IDENTITY_CONTEXT_ALIASES, IDENTITY_LEXICON, PUBLISHER_DOMAINS } from "@aihot/industry/taxonomy";
 import { onlyXArticleLink } from "../sources/x.ts";
 import type { AnalyzeInputArticle } from "./input.ts";
+import { domainDef, type DomainKey } from "@aihot/industry/domains";
+import { VOCABULARY } from "@aihot/industry/taxonomy";
 import { promptText } from "./prompts.ts";
+import { DOMAIN_GUIDE } from "./vocabulary.ts";
 
-export const PREFILTER_SYSTEM = promptText("prefilter");
-export const UNDERSTAND_SYSTEM = promptText("understand");
+export const PREFILTER_SYSTEM = promptText("prefilter", { domainGuide: DOMAIN_GUIDE });
+
+/** The content understanding of a domain: its prompt (industry/domains.ts) filled from its vocabulary. */
+export function understandSystem(domain: DomainKey): string {
+  const v = VOCABULARY[domain];
+  return promptText(domainDef(domain).prompts.understand, {
+    categoryTags: v.categoryTags.join("、"), topicTags: v.topicTags.join("、"), entityTags: v.entityTags.join("、"),
+  });
+}
+/** The finance content understanding (the prompt before domains). */
+export const UNDERSTAND_SYSTEM = understandSystem("finance");
 
 /** A body longer than this is cut (whole bodies are sent; a few run past the context). */
 export const MAX_BODY_CHARS = 60_000;
@@ -76,6 +88,8 @@ export function needsShortTweetTranslation(text: string): boolean {
 const unfetchedXArticle = (a: AnalyzeInputArticle) => !!a.xPost && a.bodyStatus !== "ok" && onlyXArticleLink(String(a.xPost.text ?? ""));
 
 function materialQuality(a: AnalyzeInputArticle): string {
+  if(a.materialScope)return `${a.materialScope}；仅依据该范围，不代表完整报告`;
+  if(a.bodyText&&a.bodyStatus==='unconfirmed')return '未确认完整性的正文片段';
   if (a.xPost) return "完整正文（来自 RSS / API 自带的 content 字段）";
   if (a.bodyText) return a.source.fetchesBody ? "完整正文（抓自原始网页）" : "完整正文（来自 RSS / API 自带的 content 字段）";
   if (a.excerpt) return "仅摘要（feed 未提供完整正文）";
@@ -114,6 +128,7 @@ export function renderContext(a: AnalyzeInputArticle, opts: { annotateQuoted?: b
   lines.push(capBody(a.xPost ? String(a.xPost.text ?? a.title) : (a.bodyText ?? a.excerpt ?? "(无正文)")));
   lines.push("");
   lines.push(`【材料质量】${materialQuality(a)}`);
+  if((a.bodyText ?? a.excerpt ?? '').length>MAX_BODY_CHARS)lines.push(`【截取范围】仅前 ${MAX_BODY_CHARS} 字符`);
   return lines.join("\n");
 }
 

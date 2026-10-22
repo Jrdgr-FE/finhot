@@ -2,6 +2,8 @@
 // manual overrides and grouping, then record selected-set changes in the sync ledger.
 // Rebuilding only re-reads stored results; it never calls a model.
 import { SITE } from "@aihot/industry/site";
+import { basicCategory } from "@aihot/industry/classification";
+import { basicDomains, isDomainKey } from "@aihot/industry/domains";
 import { toPublicApiCategory } from "@aihot/contracts/taxonomy";
 import { config } from "../config.ts";
 import { one, sql, type Tx } from "../db.ts";
@@ -40,6 +42,7 @@ interface AnalysisRow {
   reason_zh: string | null;
   score: number | null;
   selected: boolean | null;
+  domains: string[] | null;
 }
 
 interface OverrideRow {
@@ -59,6 +62,8 @@ interface PublicationRow {
   reason: string | null;
   category: string | null;
   tags: string[];
+  domains: string[];
+  primary_domain: string;
   score: number | null;
   body_mode: string;
   story_id: number | null;
@@ -159,7 +164,7 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
     SELECT id, name, kind, tier, participation_mode, first_party, site_fulltext, syndicate_fulltext FROM sources WHERE id = ${article.source_id}`;
   if (!source) return null;
   const [analysis] = await tx<AnalysisRow[]>`
-    SELECT id, relevance, category, tags, subjects, title_zh, summary_zh, reason_zh, score, selected
+    SELECT id, relevance, category, tags, subjects, title_zh, summary_zh, reason_zh, score, selected, domains
     FROM analyses WHERE article_id = ${articleId} ORDER BY input_revision DESC, id DESC LIMIT 1`;
   const [override] = await tx<OverrideRow[]>`SELECT fields, visibility FROM editorial_overrides WHERE article_id = ${articleId}`;
   const [membership] = await tx<{ fact_id: number; story_id: number | null }[]>`
@@ -176,7 +181,12 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
   const zhTitle = analysis?.title_zh?.trim() ? analysis.title_zh : null;
   const title = pickString(f.title, zhTitle ?? (isChineseTitle || article.x_post ? collapseWhitespace(article.title) : null));
   const summary = pickString(f.summary, analysis?.summary_zh ?? null);
-  const category = pickString(f.category, analysis?.category ?? null);
+  // The judged domains (ranked, the first is the primary); without a judgement the source's and the title rule's.
+  const overrideDomains = Array.isArray(f.domains) ? (f.domains as unknown[]).filter(isDomainKey) : [];
+  const judgedDomains = (analysis?.domains ?? []).filter(isDomainKey);
+  const domains = overrideDomains.length ? [...new Set(overrideDomains)] : judgedDomains.length ? judgedDomains : basicDomains(article.source_id, article.title);
+  const primaryDomain = domains[0]!;
+  const category = pickString(f.category, analysis?.category ?? null) || basicCategory(article.source_id, article.title, null, primaryDomain);
   const tags = Array.isArray(f.tags) ? (f.tags as string[]) : [...new Set([...(analysis?.tags ?? []), ...(analysis?.subjects ?? []).map((s) => `entity:${s}`)])];
   const score = typeof f.score === "number" ? f.score : analysis?.score ?? null;
   const relevance = typeof f.relevance === "string" ? (f.relevance as string) : analysis?.relevance ?? null;
@@ -232,7 +242,7 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
   const next = {
     visibility, eligible, selected, title: title ?? collapseWhitespace(article.title), original_title: originalTitle, summary, reason,
     category, tags, score: round1(score), body_mode: bodyMode, story_id: membership?.story_id ?? null, fact_id: membership?.fact_id ?? null,
-    indexable,
+    indexable, domains, primary_domain: primaryDomain,
   };
   const changed =
     !previous ||
@@ -242,17 +252,19 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
         original_title: previous.original_title, summary: previous.summary, reason: previous.reason, category: previous.category,
         tags: [...previous.tags].sort(), score: previous.score === null ? null : Number(previous.score), body_mode: previous.body_mode,
         story_id: previous.story_id, fact_id: previous.fact_id, indexable: previous.indexable,
+        domains: previous.domains, primary_domain: previous.primary_domain,
       });
   const revision = previous ? previous.revision + (changed ? 1 : 0) : 1;
 
   await tx`
     INSERT INTO publications (article_id, analysis_id, revision, visibility, eligible, selected, title, original_title, summary,
       reason, category, tags, score, source_id, channel, first_party, url, published_at, discovered_at, timeline_at, backfill,
-      selected_ready_at, visible_after, body_mode, syndicate, indexable, story_id, fact_id, search_text, sort_at, updated_at)
+      selected_ready_at, visible_after, body_mode, syndicate, indexable, story_id, fact_id, search_text, sort_at, domains, primary_domain, updated_at)
     VALUES (${articleId}, ${analysis?.id ?? null}, ${revision}, ${visibility}, ${eligible}, ${selected}, ${next.title},
       ${originalTitle}, ${summary}, ${reason}, ${category}, ${tags}, ${next.score}, ${source.id}, ${channel}, ${source.first_party},
       ${article.url}, ${article.published_at}, ${article.discovered_at}, ${article.timeline_at}, ${article.backfill},
-      ${selectedReadyAt}, ${visibleAfter}, ${bodyMode}, ${syndicate}, ${indexable}, ${next.story_id}, ${next.fact_id}, ${searchText}, ${sortAt}, now())
+      ${selectedReadyAt}, ${visibleAfter}, ${bodyMode}, ${syndicate}, ${indexable}, ${next.story_id}, ${next.fact_id}, ${searchText}, ${sortAt},
+      ${domains}, ${primaryDomain}, now())
     ON CONFLICT (article_id) DO UPDATE SET
       analysis_id = EXCLUDED.analysis_id, revision = EXCLUDED.revision, visibility = EXCLUDED.visibility,
       eligible = EXCLUDED.eligible, selected = EXCLUDED.selected, title = EXCLUDED.title, original_title = EXCLUDED.original_title,
@@ -262,7 +274,8 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
       timeline_at = EXCLUDED.timeline_at, backfill = EXCLUDED.backfill, selected_ready_at = EXCLUDED.selected_ready_at,
       visible_after = EXCLUDED.visible_after, body_mode = EXCLUDED.body_mode, syndicate = EXCLUDED.syndicate,
       indexable = EXCLUDED.indexable, story_id = EXCLUDED.story_id, fact_id = EXCLUDED.fact_id,
-      search_text = EXCLUDED.search_text, sort_at = EXCLUDED.sort_at, updated_at = now()
+      search_text = EXCLUDED.search_text, sort_at = EXCLUDED.sort_at, domains = EXCLUDED.domains,
+      primary_domain = EXCLUDED.primary_domain, updated_at = now()
     WHERE (publications.analysis_id, publications.revision, publications.visibility, publications.eligible,
         publications.selected, publications.title, publications.original_title, publications.summary,
         publications.reason, publications.category, publications.tags, publications.score,
@@ -270,7 +283,7 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
         publications.published_at, publications.discovered_at, publications.timeline_at, publications.backfill,
         publications.selected_ready_at, publications.visible_after, publications.body_mode, publications.syndicate,
         publications.indexable, publications.story_id, publications.fact_id, publications.search_text,
-        publications.sort_at)
+        publications.sort_at, publications.domains, publications.primary_domain)
       IS DISTINCT FROM (EXCLUDED.analysis_id, EXCLUDED.revision, EXCLUDED.visibility, EXCLUDED.eligible,
         EXCLUDED.selected, EXCLUDED.title, EXCLUDED.original_title, EXCLUDED.summary,
         EXCLUDED.reason, EXCLUDED.category, EXCLUDED.tags, EXCLUDED.score,
@@ -278,7 +291,7 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
         EXCLUDED.published_at, EXCLUDED.discovered_at, EXCLUDED.timeline_at, EXCLUDED.backfill,
         EXCLUDED.selected_ready_at, EXCLUDED.visible_after, EXCLUDED.body_mode, EXCLUDED.syndicate,
         EXCLUDED.indexable, EXCLUDED.story_id, EXCLUDED.fact_id, EXCLUDED.search_text,
-        EXCLUDED.sort_at)`;
+        EXCLUDED.sort_at, EXCLUDED.domains, EXCLUDED.primary_domain)`;
 
   // The pool search row follows eligibility; its body part only covers full text the site may show.
   if (eligible) {

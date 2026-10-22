@@ -21,9 +21,9 @@ const provider = await stub((_hit, req) => {
   seen.push({ model: body.model, system });
   const content =
     system.includes("宽召回") ? { label: "PASS", reason: "测试" }
-    : system.includes("事件注意力评分器") ? { attentionScore: 80 }
-    : system.includes("内容理解编辑") ? { itemType: "product_launch", authorRole: "principal", tags: ["产品更新"], editorialJudgment: "理由", titleZh: "一个模型的标题", summaryZh: "一个模型写的摘要。第二句。" }
-    : system.includes("资料结构化助手") ? { category: "ai-products", tags: ["产品更新"], subjects: [], fact: null }
+    : system.includes("事件注意力评分器") ? { attentionScore: 65 } // near the T1 threshold (60): both scores are asked
+    : system.includes("内容理解编辑") ? { itemType: "institution_move", authorRole: "principal", tags: ["机构/人事"], editorialJudgment: "理由", titleZh: "一条金融标题", summaryZh: "一条摘要。第二句。" }
+    : system.includes("资料结构化助手") ? { category: "banking", tags: ["机构/人事"], subjects: [], fact: null }
     : user.includes("title_zh") ? "title_zh: 标题\nsummary_zh: 摘要。"
     : null;
   if (content === null) throw new Error("unexpected request");
@@ -42,12 +42,12 @@ after(async () => {
 
 test("one model runs the prefilter, both scores, the writing and the structure", async () => {
   const { articleId } = await upsertMaterial({
-    sourceId: SOURCE, url: `https://example.com/${T}`, title: `A product launch ${T}`, bodyText: `A company launched a product with pricing and availability. ${T} `.repeat(6),
+    sourceId: SOURCE, url: `https://example.com/${T}`, title: `A bank merger ${T}`, bodyText: `A bank announced a merger with capital and branch details. ${T} `.repeat(6),
     bodyStatus: "ok", via: "fetch", publishedAt: new Date(),
   } as never);
   const res = await analyzeArticle(articleId);
   assert.equal(res!.output!.selected, true);
-  assert.equal(res!.output!.titleZh, "一个模型的标题");
+  assert.equal(res!.output!.titleZh, "一条金融标题");
   assert.equal(seen.length, 5, "prefilter, two scores, understand, structure");
   assert.ok(seen.every((r) => r.model === "one-model"), "every request names the configured model");
   const services = await sql<{ service: string }[]>`SELECT DISTINCT service FROM receipts WHERE subject LIKE ${`article:${articleId}%`}`;

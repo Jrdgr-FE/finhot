@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler", "lib": ["ES2022", "DOM"],
+    "strict": true, "noEmit": true, "allowImportingTsExtensions": true, "resolveJsonModule": true,
+    "skipLibCheck": true, "esModuleInterop": true, "types": []
+  },
+  "include": ["./worker.ts", "../../packages/backend/src/publication/free.ts", "../ecs/cloudflare-sync-worker.ts", "../ecs/redirect-worker.ts"]
+}

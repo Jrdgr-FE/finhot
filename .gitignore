@@ -14,3 +14,9 @@ apps/web/.react-router/
 # Font package unpacked to regenerate the report nameplates (docs/customize.md)
 package/
 fontsource-noto-sans-sc-*.tgz
+
+# Cloudflare Worker 类型，由 `npm run cf:types` 从 wrangler.jsonc 生成（一万六千多行，不进仓库）
+worker-configuration.d.ts
+.wrangler/
+.dev.vars
+.dev.vars.*

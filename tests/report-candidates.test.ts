@@ -7,7 +7,7 @@ import { closeDb, sql } from "@aihot/backend/db";
 import { upsertMaterial } from "@aihot/backend/content/materials";
 import { stopBoss } from "@aihot/backend/jobs/queue";
 import { publishArticle, publishArticleTx } from "@aihot/backend/publication/publish";
-import { candidates, composeDaily } from "@aihot/backend/reports/compose";
+import { candidates, composeDaily, repairEmptyDailyReports } from "@aihot/backend/reports/compose";
 
 const T = tag();
 const SOURCE = `test-report-boundary-${T}`;
@@ -24,7 +24,7 @@ before(async () => {
             VALUES (${SOURCE}, 'Report boundary test', 'rss', 'T1', 'editorial', '2100-01-01')`;
 });
 after(async () => {
-  await sql`DELETE FROM reports WHERE kind = 'daily' AND key IN ('2020-01-02', '2020-01-03', '2020-01-04', '2020-01-05')`;
+  await sql`DELETE FROM reports WHERE kind = 'daily' AND key IN ('2020-01-02', '2020-01-03', '2020-01-04', '2020-01-05', '2020-01-06', '2020-01-07', '2020-01-08')`;
   await provider.close();
   await stopBoss();
   await closeDb();
@@ -43,7 +43,7 @@ async function analyzed(label: string, timelineAt: string): Promise<string> {
   });
   assert.equal(backfill, false);
   await sql`INSERT INTO analyses (article_id, input_revision, origin, relevance, category, title_zh, summary_zh, score, selected)
-            VALUES (${articleId}, 1, 'rule', 'pass', 'ai-models', ${`标题 ${label}`}, ${`摘要 ${label}`}, 90, true)`;
+            VALUES (${articleId}, 1, 'rule', 'pass', 'policy', ${`标题 ${label}`}, ${`摘要 ${label}`}, 90, true)`;
   return articleId;
 }
 
@@ -53,6 +53,20 @@ async function selected(label: string, timelineAt: string, releasedAt: string): 
   assert.equal(published?.selected, true);
   return articleId;
 }
+
+test("a source the pack withholds (an AI source on trial) reaches no report", async () => {
+  await sql`INSERT INTO sources (id, name, kind, tier, participation_mode, next_fetch_at)
+            VALUES ('ai-techcrunch', 'TechCrunch AI', 'rss', 'T1', 'editorial', '2100-01-01') ON CONFLICT (id) DO UPDATE SET participation_mode = 'editorial'`;
+  const at = "2020-01-05T23:58:00Z";
+  const { articleId } = await upsertMaterial({ sourceId: "ai-techcrunch", url: `https://example.com/report-trial-${T}`, title: "Report trial",
+    bodyText: "Report trial body", bodyStatus: "ok", publishedAt: new Date(at), discoveredAt: new Date(at), via: "fetch" });
+  await sql`INSERT INTO analyses (article_id, input_revision, origin, relevance, category, title_zh, summary_zh, score, selected)
+            VALUES (${articleId}, 1, 'rule', 'pass', 'policy', '试运行标题', '试运行摘要', 90, true)`;
+  const published = await publishArticle(articleId, { now: new Date("2020-01-05T23:59:00Z"), releasedAt: new Date("2020-01-05T23:59:00Z") });
+  assert.equal(published?.selected, true, "processed and selected on the server");
+  const ids = (await candidates(new Date("2020-01-05T00:00:00Z"), new Date("2020-01-06T00:00:00Z"))).map((c) => c.itemId);
+  assert.equal(ids.includes(articleId), false);
+});
 
 test("reports assign delayed and boundary releases to the period readers first see them", async () => {
   const onTime = await selected("on-time", "2020-01-01T23:58:00Z", "2020-01-01T23:59:00Z");
@@ -177,4 +191,39 @@ test("daily composition waits for a pre-cutoff release to commit instead of losi
     commit.open();
     await Promise.allSettled([publication, report]);
   }
+});
+
+
+test('empty editions recover real selected entries without paying for a lead when the budget is full',async()=>{
+  await composeDaily('2020-01-06');
+  const id=await selected('restored-selection','2020-01-05T20:00:00Z','2020-01-05T20:05:00Z');
+  const late=await selected('next-edition-only','2020-01-05T21:00:00Z','2020-01-06T00:10:00Z');
+  const [budget]=await sql`SELECT per_day FROM budgets WHERE service='deepseek'`;
+  const hits=provider.hits();
+  try{
+    await sql`UPDATE budgets SET per_day=0 WHERE service='deepseek'`;
+    assert.deepEqual(await repairEmptyDailyReports(new Date('2020-01-06T01:00:00Z'),1),['2020-01-06']);
+    const [row]=await sql`SELECT content,revision FROM reports WHERE kind='daily' AND key='2020-01-06'`;
+    assert.equal(row.content.generator.leadDeferred,true);assert.equal(row.content.lead,null);
+    const ids=row.content.sections.flatMap((s:any)=>s.items.map((i:any)=>i.itemId));
+    assert.ok(ids.includes(id));assert.ok(!ids.includes(late));
+    assert.deepEqual(await repairEmptyDailyReports(new Date('2020-01-06T01:00:00Z'),1),[]);
+    assert.equal(provider.hits(),hits,'budget rejection does not send a provider request');
+    await composeDaily('2020-01-07');
+    const [next]=await sql`SELECT content FROM reports WHERE kind='daily' AND key='2020-01-07'`;
+    const nextIds=next.content.sections.flatMap((s:any)=>s.items.map((i:any)=>i.itemId));
+    assert.ok(nextIds.includes(late));assert.ok(!nextIds.includes(id));
+  }finally{await sql`UPDATE budgets SET per_day=${budget.per_day} WHERE service='deepseek'`;}
+});
+
+
+test('deployments that only display selected entries do not pay for unused report introductions',async()=>{
+  const id=await selected('no-paid-intro','2020-01-07T20:00:00Z','2020-01-07T20:01:00Z');
+  const hits=provider.hits();process.env.FINHOT_REPORT_LEAD_ENABLED='false';
+  try{
+    await composeDaily('2020-01-08');
+    const [r]=await sql`SELECT content FROM reports WHERE kind='daily' AND key='2020-01-08'`;
+    assert.equal(r.content.generator.leadEnabled,false);assert.equal(r.content.lead,null);
+    assert.ok(r.content.sections.some((s:any)=>s.items.some((i:any)=>i.itemId===id)));assert.equal(provider.hits(),hits);
+  }finally{delete process.env.FINHOT_REPORT_LEAD_ENABLED;}
 });

@@ -1,0 +1,73 @@
+// FinHot 在 Cloudflare 上的部署配置。
+//
+// 部署形态：一个 Worker（本文件配的 deploy/cloudflare/worker.ts）+ 一个常驻容器。
+// 容器里跑 web + api + worker 三个进程（见 deploy/cloudflare/entrypoint.sh），数据库外挂在
+// Neon 上——容器磁盘是临时的，实例一休眠就重置，所以库不能放在容器里。
+//
+// 首次部署前要做的事：
+//   1. npm i -w . @cloudflare/containers
+//   2. npx wrangler secret put SESSION_SECRET        （以及下面 secrets 里列的其他项）
+//   3. 用 Neon 的连接串设置 DATABASE_URL
+//
+// VPS 部署路径不受影响：docker-compose.yml 和根目录 Dockerfile 都没有改动。
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "finhot",
+	"main": "deploy/cloudflare/worker.ts",
+
+	// 2026-08-04 及以后会自动启用 nodejs_compat 与 nodejs_compat_v2。
+	// 容器镜像本身是真 Linux，这个标志是给 Worker 那段代码用的。
+	"compatibility_date": "2026-08-04",
+	"compatibility_flags": ["nodejs_compat"],
+
+	// 观测：容器启动失败、Worker 异常都要能在后台看到，不然排障只能靠猜。
+	"observability": { "enabled": true },
+	"triggers": { "crons": ["*/5 * * * *"] },
+
+	"containers": [
+		{
+			"class_name": "FinHotContainer",
+			// 指向根目录的 Dockerfile，保持和 VPS 部署同一份构建定义，避免两边漂移。
+			"image": "./Dockerfile",
+			// 三进程启动命令在 Container 类的 entrypoint 属性中设置。
+			// 单实例应用：数据库共享，多开没有意义。见 worker.ts 里的说明。
+			"max_instances": 1,
+			// 1 vCPU / 6 GiB / 12 GB 磁盘。FinHot 要同时跑 web + api + worker，
+			// 官方文档建议构建时 2 核 4 GB，运行期 standard-2 比较稳妥。
+			// 想省钱可以先试 standard-1（0.5 vCPU / 4 GiB），但 0.5 核跑三个 Node 进程会吃紧。
+			"instance_type": "standard-2"
+		}
+	],
+
+	"durable_objects": {
+		"bindings": [{ "name": "FINHOT", "class_name": "FinHotContainer" }]
+	},
+	// Container 类必须注册为 SQLite 类型的 Durable Object（不能用 new_classes）。
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["FinHotContainer"] }],
+
+	// 根域名给 FinHot，图谱站在 map.finhot.fun（已上线，挂在 Cloudflare Pages 上）。
+	"routes": [],
+
+	// 非密钥的配置项。密钥（SESSION_SECRET、LLM_API_KEY、ADMIN_PASSWORD、
+	// IMG_PROXY_SIGN_SECRET、POSTGRES_PASSWORD 以及 Neon 的 DATABASE_URL）用
+	// `npx wrangler secret put <名字>` 设置，不要写进这个文件。
+	//
+	// environment.ts 显式把这里的 vars 和应用 secrets 传进容器。
+	// DATABASE_URL 必须指向外部 PostgreSQL，不是容器内的 Postgres。
+	"vars": {
+		"SITE_URL": "https://finhot.fun",
+		"SITE_DOMAIN": "finhot.fun",
+		// 前面有 Cloudflare 代理，访客地址从请求头里读。
+		"TRUST_PROXY": "true",
+		// 部署在 Cloudflare 的机器上，出口在境外，不需要再走代理。
+		"AIHOT_DATA_DIR": "/data",
+		"NODE_ENV": "production",
+		// 安全阀：先全部关闭。等容器跑通、确认抓取和模型调用正常后再逐个打开。
+		// 这几个开关的说明见 AGENTS.md。
+		"COLLECT_ENABLED": "false",
+		"MODEL_CALLS_ENABLED": "false",
+		"FEISHU_CONTENT_PUSH_ENABLED": "false",
+		"FEISHU_INTERNAL_ENABLED": "false",
+		"INDEXNOW_SUBMIT_ENABLED": "false"
+	}
+}

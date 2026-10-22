@@ -1,0 +1,20 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "finhot-free",
+  "main": "worker.ts",
+  "compatibility_date": "2026-10-01",
+  "account_id": "<CLOUDFLARE_ACCOUNT_ID>",
+  "workers_dev": true,
+  "preview_urls": false,
+  "routes": [],
+  "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": true },
+  "d1_databases": [{ "binding": "DB", "database_name": "finhot-free", "database_id": "<D1_DATABASE_ID>", "migrations_dir": "migrations" }],
+  "ai": { "binding": "AI" },
+  "queues": {
+    "producers": [{ "binding": "TASKS", "queue": "finhot-free-tasks" }],
+    "consumers": [{ "queue": "finhot-free-tasks", "max_batch_size": 1, "max_batch_timeout": 5, "max_retries": 2, "max_concurrency": 1 }]
+  },
+  "triggers": { "crons": ["*/10 * * * *", "0 0 * * *"] },
+  "vars": { "SITE_URL": "https://finhot.fun", "COLLECT_ENABLED": "true", "MODEL_CALLS_ENABLED": "true", "AI_DAILY_LIMIT": "20", "PREVIEW_ONLY": "false" },
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 }
+}

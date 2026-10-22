@@ -52,7 +52,10 @@ export async function setTargetEnabled(key: string, enabled: boolean, reason: st
 
 export async function listBudgets() {
   return sql`
-    SELECT b.service, b.per_minute, b.per_hour, b.per_day, b.note, b.updated_at,
+    SELECT b.service, b.per_minute, b.per_hour, b.per_day, b.daily_cost_limit, b.cost_currency, b.note, b.updated_at,
+           (SELECT coalesce(sum(CASE WHEN a.cost IS NOT NULL AND a.currency = b.cost_currency THEN a.cost
+                                    WHEN a.reserved_currency = b.cost_currency THEN a.reserved_cost END), 0)
+            FROM receipt_attempts a WHERE a.service = b.service AND a.origin = 'live' AND a.started_at > now() - interval '1 day') AS cost_used_day,
            (SELECT count(*)::int FROM receipt_attempts a WHERE a.service = b.service AND a.origin = 'live' AND a.started_at > now() - interval '1 day') AS used_day,
            (SELECT count(*)::int FROM receipt_attempts a WHERE a.service = b.service AND a.origin = 'live' AND a.started_at > now() - interval '1 hour') AS used_hour
     FROM budgets b ORDER BY b.service`;

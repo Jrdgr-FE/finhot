@@ -6,6 +6,31 @@ import { FEATURES } from "@aihot/industry/features";
 
 const at = process.argv.indexOf("--base");
 const base = (at > 0 ? process.argv[at + 1] : process.env.SITE_URL) ?? "http://localhost:3000";
+const editionAt=process.argv.indexOf('--edition');
+if(editionAt>0&&process.argv[editionAt+1]==='server-sync'){
+  let failed=0;
+  const items=await fetch(base+'/api/items').then(r=>r.json()) as {items:Array<{id:string;summary?:string}>};
+  const reports=await fetch(base+'/api/reports').then(r=>r.json()) as {reports:Array<{date:string}>};
+  const article=items.items?.find(i=>i.summary)?.id;
+  const daily=reports.reports?.[0]?.date;
+  const paths=['/','/all?group=company','/all?group=research','/daily','/about','/terms','/privacy','/feedback','/admin','/api/health','/api/items','/api/items?all=1','/api/sources','/api/reports','/feed.xml','/robots.txt','/llms.txt','/sitemap.xml','/app.js','/style.css'];
+  if(article)paths.push('/articles/'+encodeURIComponent(article));
+  if(daily)paths.push('/daily/'+daily);
+  for(const path of paths){
+    try{
+      const r=await fetch(base+path,{redirect:'manual',signal:AbortSignal.timeout(20000)});
+      const body=await r.text();let valid=r.status===200;
+      if(path.startsWith('/api/')){const d=JSON.parse(body);valid&&=!d.error;if(path==='/api/health')valid&&=d.edition==='server-sync'&&!d.stale;}
+      else if(path==='/feed.xml')valid&&=body.includes('<rss')&&r.headers.get('content-type')?.includes('xml')===true;
+      else if(path==='/sitemap.xml')valid&&=body.includes('<urlset')&&(!article||body.includes('/articles/'+article));
+      else if(path==='/app.js'||path==='/style.css')valid&&=r.headers.get('x-finhot-asset')==='direct';
+      else if(path.startsWith('/articles/')||/^\/daily\/\d{4}-\d{2}-\d{2}$/.test(path))valid&&=body.includes('rel="canonical"')&&!body.includes('src="/app.js"');
+      else valid&&=body.includes('FinHot')||path==='/robots.txt';
+      console.log(`${valid?'✓':'✗'} ${path} (${r.status})`);if(!valid)failed++;
+    }catch{console.log(`✗ ${path}`);failed++;}
+  }
+  console.log(failed?`${failed} check(s) failed`:'all server-sync checks passed');process.exit(failed?1:0);
+}
 
 const PAGES = ["/", "/all", "/hot", "/daily", "/daily/archive", "/topics", "/starred", "/agent", "/about", "/changelog", "/feedback", "/terms", "/privacy", "/more", "/admin/login"];
 const MACHINE: Array<[path: string, type: RegExp]> = [

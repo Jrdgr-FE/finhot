@@ -1,0 +1,28 @@
+[Unit]
+Description=FinHot API
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=finhot
+Group=finhot
+WorkingDirectory=/opt/finhot/current
+EnvironmentFile=/etc/finhot/api.env
+ExecStart=/opt/finhot/runtime/bin/node --max-old-space-size=256 apps/api/src/main.ts
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+MemoryHigh=320M
+MemoryMax=384M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/finhot
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

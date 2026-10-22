@@ -15,10 +15,11 @@ import { registerFeeds } from "./routes/feeds.ts";
 import { registerStatic } from "./routes/static.ts";
 import { registerMcp } from "./routes/mcp.ts";
 import { sendProblem } from "./http/respond.ts";
+import { registerEdge } from "./routes/edge.ts";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: { level: process.env.LOG_LEVEL || "info", redact: ["req.headers.authorization", "req.headers.cookie"] },
+    logger: { level: process.env.LOG_LEVEL || "info", redact: ["req.headers.authorization", "req.headers.cookie", 'req.headers["x-finhot-origin-token"]'] },
     // Access logs never record query strings (tokens, actors).
     disableRequestLogging: true,
     trustProxy: true,
@@ -64,6 +65,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   registerSite(app);
+  registerEdge(app);
   if (FEATURES.leaderboard) registerLeaderboard(app);
   registerOg(app);
   registerAdminAuth(app);

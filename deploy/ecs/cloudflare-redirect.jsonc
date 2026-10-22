@@ -1,0 +1,14 @@
+{
+  "$schema":"../../node_modules/wrangler/config-schema.json",
+  "name":"finhot-redirect",
+  "account_id":"<CLOUDFLARE_ACCOUNT_ID>",
+  "main":"redirect-worker.ts",
+  "compatibility_date":"2026-10-01",
+  "workers_dev":false,"preview_urls":false,
+  "routes":[
+    {"pattern":"www.finhot.fun","custom_domain":true,"zone_id":"<CLOUDFLARE_ZONE_ID>"},
+    {"pattern":"test.finhot.fun","custom_domain":true,"zone_id":"<CLOUDFLARE_ZONE_ID>"},
+    {"pattern":"http://finhot.fun/*","zone_id":"<CLOUDFLARE_ZONE_ID>"}
+  ],
+  "observability":{"enabled":true,"head_sampling_rate":0.1}
+}

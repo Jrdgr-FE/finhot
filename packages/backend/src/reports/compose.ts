@@ -1,23 +1,43 @@
 // Daily, weekly and monthly reports. Windows are Beijing calendar based and written into the report;
 // missed schedule points are caught up; regeneration creates a revision. The editors' prompts are in
-// the industry pack (industry/prompts/report-*.md), the sections follow its categories.
+// the industry pack (industry/prompts/report-*.md), the sections follow its categories. Every domain
+// (industry/domains.ts) has its own daily report (finance: kind daily; ai: ai-daily), from the selected
+// items that belong to it; a cross-domain item can be in both.
 import { z } from "zod";
 import { SITE } from "@aihot/industry/site";
 import { CATEGORIES } from "@aihot/industry/taxonomy";
+import { DEFAULT_DOMAIN, domainDef, isDomainKey, reportKind, type DomainKey } from "@aihot/industry/domains";
 import { promptText, promptVersion } from "../editorial/prompts.ts";
 import { modelFor } from "../editorial/models.ts";
 import { addDays, beijingDate, beijingMidnight, isoWeekLabel, isoWeekRange } from "@aihot/contracts/time";
 import { sql } from "../db.ts";
 import { chatJson } from "../providers/llm.ts";
-import { completeReceipt } from "../providers/receipts.ts";
+import { completeReceipt, BudgetExceededError } from "../providers/receipts.ts";
 import { shutdownSignal } from "../jobs/queue.ts";
+import { WITHHELD_SOURCE_IDS } from "../publication/edge.ts";
 
 export const REPORT_VERSION = promptVersion("report-daily-lead", "report-period");
 
 const SECTION_OF: Record<string, string> = Object.fromEntries(CATEGORIES.map((c) => [c.key, c.section]));
-const SECTION_ORDER = [...new Set(CATEGORIES.map((c) => c.section))];
-/** Where an item without a category goes. */
-const DEFAULT_SECTION = SECTION_OF.industry ?? SECTION_ORDER.at(-1)!;
+/** A domain's sections in report order, and where its items without a (domain) category go. */
+function sectionsOf(domain: DomainKey) {
+  const own = CATEGORIES.filter((c) => c.domain === domain);
+  const order = [...new Set(own.map((c) => c.section))];
+  const of = Object.fromEntries(own.map((c) => [c.key, c.section])) as Record<string, string>;
+  return { order, of, fallback: of[domainDef(domain).fallbackCategory] ?? order.at(-1)! };
+}
+
+/** Weekly and monthly reports are finance's; their items' sections (any domain's category) and fallback. */
+const DEFAULT_SECTION = sectionsOf(DEFAULT_DOMAIN).fallback;
+
+/**
+ * The domains whose daily report is composed: finance always, others when listed in
+ * FINHOT_REPORT_DOMAINS (comma separated, e.g. "ai"), so a domain is switched on once its sources are live.
+ */
+export function reportDomains(env: string | undefined = process.env.FINHOT_REPORT_DOMAINS): DomainKey[] {
+  const listed = (env ?? "").split(",").map((d) => d.trim()).filter(isDomainKey);
+  return [...new Set<DomainKey>([DEFAULT_DOMAIN, ...listed])];
+}
 
 export interface ReportEntry {
   itemId: string;
@@ -46,7 +66,7 @@ function roleOf(kind: string, firstParty: boolean): string {
   return "媒体";
 }
 
-export async function candidates(start: Date, end: Date): Promise<Candidate[]> {
+export async function candidates(start: Date, end: Date, domain?: DomainKey): Promise<Candidate[]> {
   const rows = await sql.begin("isolation level read committed", async (tx) => {
     // Wait for in-flight releases and keep later ones outside this snapshot. The following SELECT
     // gets a fresh READ COMMITTED snapshot; model calls and report writes happen after the lock ends.
@@ -60,7 +80,8 @@ export async function candidates(start: Date, end: Date): Promise<Candidate[]> {
       FROM publications p JOIN sources s ON s.id = p.source_id
       LEFT JOIN facts f ON f.id = p.fact_id LEFT JOIN stories st ON st.id = f.story_id
       -- Attribute each item by the later of arrival and release; either range can use its index.
-      WHERE p.visibility = 'public' AND p.selected AND NOT p.backfill
+      WHERE p.visibility = 'public' AND p.selected AND NOT p.backfill AND NOT s.id = ANY(${WITHHELD_SOURCE_IDS}::text[])
+        ${domain ? tx`AND p.domains @> ARRAY[${domain}]::text[]` : tx``}
         AND (
           (p.visible_after <= p.timeline_at AND p.timeline_at >= ${start} AND p.timeline_at < ${end})
           OR (p.visible_after > p.timeline_at AND p.visible_after >= ${start} AND p.visible_after < ${end})
@@ -82,7 +103,7 @@ export async function candidates(start: Date, end: Date): Promise<Candidate[]> {
 }
 
 /** Facts and items already covered by recent editions are not repeated. */
-async function recentlyCovered(kind: "daily", before: string, days = 7): Promise<Set<string>> {
+async function recentlyCovered(kind: string, before: string, days = 7): Promise<Set<string>> {
   const rows = await sql<{ content: Record<string, any> }[]>`
     SELECT content FROM reports WHERE kind = ${kind} AND key < ${before} AND key >= ${addDays(before, -days)}`;
   const out = new Set<string>();
@@ -102,12 +123,12 @@ const LeadSchema = z.object({
   highlights: z.array(z.union([z.number(), z.string()])).max(6).catch([]),
 });
 
-async function writeLead(kind: string, key: string, entries: ReportEntry[], model: string) {
+async function writeLead(kind: string, key: string, entries: ReportEntry[], model: string, domain: DomainKey = DEFAULT_DOMAIN) {
   if (entries.length === 0) return null;
   const list = entries.slice(0, 30).map((e, i) => `${i + 1}. ${e.title}｜${e.summary.slice(0, 120)}`).join("\n");
   const res = await chatJson({
     model, purpose: "report_lead", subject: `report:${kind}:${key}`, promptVersion: REPORT_VERSION,
-    system: promptText("report-daily-lead"),
+    system: promptText("report-daily-lead", { domainName: domainDef(domain).label }),
     user: list, schema: LeadSchema, temperature: 0.3, maxTokens: 800,
   });
   const highlights = res.data.highlights
@@ -117,7 +138,7 @@ async function writeLead(kind: string, key: string, entries: ReportEntry[], mode
   return { lead: { title: res.data.title, leadParagraph: res.data.leadParagraph }, highlights, receiptId: res.receiptId };
 }
 
-async function saveReport(kind: "daily" | "weekly" | "monthly", key: string, start: Date, end: Date, content: Record<string, unknown>, reason: string, model: string) {
+async function saveReport(kind: string, key: string, start: Date, end: Date, content: Record<string, unknown>, reason: string, model: string) {
   await sql.begin(async (tx) => {
     const [existing] = await tx<{ id: number; revision: number; content: unknown; generated_at: Date }[]>`
       SELECT id, revision, content, generated_at FROM reports WHERE kind = ${kind} AND key = ${key} FOR UPDATE`;
@@ -133,12 +154,14 @@ async function saveReport(kind: "daily" | "weekly" | "monthly", key: string, sta
   });
 }
 
-/** Daily report for Beijing date D covers [D-1 08:00, D 08:00) Beijing time. */
-export async function composeDaily(date: string, reason = "scheduled"): Promise<{ key: string; entries: number }> {
+/** Daily report for Beijing date D covers [D-1 08:00, D 08:00) Beijing time; one per domain. */
+export async function composeDaily(date: string, reason = "scheduled", domain: DomainKey = DEFAULT_DOMAIN): Promise<{ key: string; entries: number }> {
   const end = new Date(beijingMidnight(date).getTime() + 8 * 3600 * 1000);
   const start = new Date(end.getTime() - 86400000);
-  const covered = await recentlyCovered("daily", date);
-  const all = await candidates(start, end);
+  const kind = reportKind("daily", domain), { order: SECTION_ORDER, of: SECTION_OF, fallback: DEFAULT_SECTION } = sectionsOf(domain);
+  const covered = await recentlyCovered(kind, date);
+  // Finance keeps reading every selected item (all of them were finance before domains).
+  const all = await candidates(start, end, domain === DEFAULT_DOMAIN ? undefined : domain);
   const fresh = all.filter((c) => !covered.has(c.factKey) && !covered.has(`a:${c.itemId}`));
   const perSection = new Map<string, Candidate[]>();
   const flashes: Array<{ itemId: string; title: string; sourceName: string; sourceUrl: string; publishedAt: string }> = [];
@@ -155,7 +178,15 @@ export async function composeDaily(date: string, reason = "scheduled"): Promise<
   }));
   const ordered = sections.flatMap((s) => s.items).sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   const model = await modelFor("report");
-  const lead = ordered.length ? await writeLead("daily", date, ordered, model) : null;
+  // Selected entries are already validated. A budget-limited optional lead must not
+  // prevent the edition from publishing those entries.
+  let lead:Awaited<ReturnType<typeof writeLead>>|null=null;
+  let leadDeferred=false;
+  const leadEnabled=process.env.FINHOT_REPORT_LEAD_ENABLED!=='false';
+  if(ordered.length&&leadEnabled){
+    try{lead=await writeLead(kind,date,ordered,model,domain);}
+    catch(error){if(!(error instanceof BudgetExceededError))throw error;leadDeferred=true;}
+  }
   const content = {
     date,
     lead: lead?.lead ?? null,
@@ -165,14 +196,14 @@ export async function composeDaily(date: string, reason = "scheduled"): Promise<
     metrics: {
       totalEvents: ordered.length,
       sourcesCount: new Set(ordered.map((e) => e.sourceId)).size,
-      modelsReleased: perSection.get("模型发布/更新")?.length ?? 0,
+      modelsReleased: perSection.get("模型与产品")?.length ?? 0,
       firstPartyEvents: ordered.filter((e) => e.firstParty).length,
     },
     windowStart: start.toISOString(),
     windowEnd: end.toISOString(),
-    generator: { version: REPORT_VERSION, model, repeatsSuppressed: all.length - fresh.length },
+    generator: { version: REPORT_VERSION, model, repeatsSuppressed: all.length - fresh.length,leadDeferred,leadEnabled },
   };
-  await saveReport("daily", date, start, end, content, reason, model);
+  await saveReport(kind, date, start, end, content, reason, model);
   if (lead) await completeReceipt(sql, lead.receiptId);
   return { key: date, entries: ordered.length };
 }
@@ -192,7 +223,7 @@ export const PeriodSchema = z.object({
 export function periodPrompt(kind: "weekly" | "monthly", startDate: string, endDateInclusive: string, top: Candidate[]) {
   const list = top.map((e, i) => `${i + 1}. [${SECTION_OF[e.category ?? ""] ?? DEFAULT_SECTION}] ${e.title}｜${e.summary.slice(0, 140)}`).join("\n");
   return {
-    system: promptText("report-period", { kindName: kind === "weekly" ? "周报" : "月报", overviewLength: kind === "weekly" ? "150–300" : "200–400" }),
+    system: promptText("report-period", { domainName: domainDef(DEFAULT_DOMAIN).label, kindName: kind === "weekly" ? "周报" : "月报", overviewLength: kind === "weekly" ? "150–300" : "200–400" }),
     user: `本期：${startDate} 至 ${endDateInclusive}\n${list}`,
   };
 }
@@ -254,6 +285,30 @@ export async function composeMonthly(label: string, reason = "scheduled") {
   return composePeriod("monthly", label, start, addDays(next, -1), reason);
 }
 
+/** Repair only empty editions with actual, already released candidates in their original window.
+ * Newly reviewed items released after 08:00 still belong to the next edition.
+ */
+export async function repairEmptyDailyReports(now=new Date(),days=3):Promise<string[]>{
+  const today=beijingDate(now),hour=Number(new Date(now.getTime()+8*3600000).toISOString().slice(11,13));
+  const latestDue=hour>=8?today:addDays(today,-1);
+  const repaired:string[]=[];
+  for(const domain of reportDomains()){
+    const kind=reportKind('daily',domain);
+    const rows=await sql<{key:string;window_start:Date;window_end:Date}[]>`SELECT key,window_start,window_end FROM reports
+      WHERE kind=${kind} AND key>=${addDays(latestDue,-days+1)} AND key<=${latestDue}
+        AND jsonb_array_length(jsonb_path_query_array(content,'$.sections[*].items[*]'))=0
+        AND jsonb_array_length(coalesce(content->'flashes','[]'::jsonb))=0 ORDER BY key`;
+    for(const row of rows){
+      if(shutdownSignal.signal.aborted)return repaired;
+      const covered=await recentlyCovered(kind,row.key);
+      const available=(await candidates(row.window_start,row.window_end,domain===DEFAULT_DOMAIN?undefined:domain)).filter(c=>!covered.has(c.factKey)&&!covered.has('a:'+c.itemId));
+      if(!available.length)continue;
+      await composeDaily(row.key,'repair-empty',domain);repaired.push(domain===DEFAULT_DOMAIN?row.key:`${domain}:${row.key}`);
+    }
+  }
+  return repaired;
+}
+
 /**
  * Catch-up: generates any missing daily report for the last `days` days (never the future and never
  * before the first report in the database), the last complete week and the last complete month.
@@ -262,16 +317,21 @@ export async function catchUpReports(now = new Date(), days = 7): Promise<{ gene
   const generated: string[] = [];
   const today = beijingDate(now);
   const bjHour = Number(new Date(now.getTime() + 8 * 3600000).toISOString().slice(11, 13));
-  const [first] = await sql<{ key: string | null }[]>`SELECT min(key) AS key FROM reports WHERE kind = 'daily'`;
   const latestDue = bjHour >= 8 ? today : addDays(today, -1);
-  for (let i = days - 1; i >= 0; i--) {
-    if (shutdownSignal.signal.aborted) return { generated }; // the next hourly run continues
-    const d = addDays(latestDue, -i);
-    if (first?.key && d < first.key) continue;
-    const [exists] = await sql`SELECT 1 FROM reports WHERE kind = 'daily' AND key = ${d}`;
-    if (!exists) {
-      await composeDaily(d, "catch-up");
-      generated.push(`daily:${d}`);
+  for (const domain of reportDomains()) {
+    const kind = reportKind("daily", domain);
+    const [first] = await sql<{ key: string | null }[]>`SELECT min(key) AS key FROM reports WHERE kind = ${kind}`;
+    // A newly switched-on domain starts with its scheduled edition, not a week of back issues.
+    if (domain !== DEFAULT_DOMAIN && !first?.key) continue;
+    for (let i = days - 1; i >= 0; i--) {
+      if (shutdownSignal.signal.aborted) return { generated }; // the next hourly run continues
+      const d = addDays(latestDue, -i);
+      if (first?.key && d < first.key) continue;
+      const [exists] = await sql`SELECT 1 FROM reports WHERE kind = ${kind} AND key = ${d}`;
+      if (!exists) {
+        await composeDaily(d, "catch-up", domain);
+        generated.push(`${kind}:${d}`);
+      }
     }
   }
   // Last complete ISO week (Monday 10:00 onwards).

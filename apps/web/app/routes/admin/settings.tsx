@@ -10,7 +10,7 @@ import { toast } from "../../features/admin/toast";
 interface Settings {
   contact: { wechatQr: string; feishuQr: string };
   targets: Array<{ key: string; purpose: string; kind: string; enabled: boolean; enabled_at: string | null; config_ref: string | null; note: string | null; deliveries_7d: number; last_sent_at: string | null }>;
-  budgets: Array<{ service: string; per_minute: number; per_hour: number; per_day: number; note: string | null; updated_at: string; used_day: number; used_hour: number }>;
+  budgets: Array<{ service: string; per_minute: number; per_hour: number; per_day: number; daily_cost_limit: number | null; cost_currency: string | null; cost_used_day: number; note: string | null; updated_at: string; used_day: number; used_hour: number }>;
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -67,6 +67,7 @@ function BudgetRow({ b }: { b: Settings["budgets"][number] }) {
         </td>
       ))}
       <td className="num px-3 py-2 text-right text-ink-3">{num(b.used_hour)} / {num(b.used_day)}</td>
+      <td className="num px-3 py-2 text-right text-ink-3">{b.daily_cost_limit === null ? "未设置" : `${b.cost_currency} ${Number(b.cost_used_day).toFixed(4)} / ${Number(b.daily_cost_limit).toFixed(2)}`}</td>
       <td className="px-3 py-2 text-right">
         <Button size="sm" tone="primary" disabled={!changed} onClick={() => setOpen(true)}>保存</Button>
         <ReasonDialog
@@ -136,6 +137,7 @@ export default function SettingsAdmin({ loaderData: s }: Route.ComponentProps) {
                 <th className="px-3 py-2 font-medium">每小时</th>
                 <th className="px-3 py-2 font-medium">每天</th>
                 <th className="px-3 py-2 text-right font-medium">已用</th>
+                <th className="px-3 py-2 text-right font-medium">24 小时费用／上限（含预留）</th>
                 <th />
               </tr>
             </thead>

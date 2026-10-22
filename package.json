@@ -16,14 +16,37 @@
     "dev:worker": "npm run dev -w @aihot/worker",
     "dev:web": "npm run dev -w @aihot/web",
     "typecheck": "tsc -p packages/contracts && tsc -p packages/backend && tsc -p apps/api && tsc -p apps/worker && tsc -p tests && npm run typecheck -w @aihot/web",
-    "test": "node --test --test-concurrency=1 --test-timeout=120000 \"tests/*.test.ts\""
+    "test": "node --test --test-concurrency=1 --test-timeout=120000 \"tests/*.test.ts\"",
+    "cf:types": "wrangler types",
+    "cf:typecheck": "wrangler types && tsc -p deploy/cloudflare/tsconfig.json",
+    "cf:deploy": "npm run free:deploy",
+    "cf:dev": "npm run free:dev",
+    "sources:check": "node scripts/check-sources.ts",
+    "start:local": "node --env-file=.env scripts/start-local.ts",
+    "free:dev": "npm run free:build && wrangler dev -c deploy/free/wrangler.jsonc --local --port 8787 --var PREVIEW_ONLY:false --var COLLECT_ENABLED:false --var MODEL_CALLS_ENABLED:false",
+    "free:check": "tsc -p deploy/free/tsconfig.json",
+    "free:test": "node --experimental-strip-types --test deploy/free/tests/*.test.ts",
+    "free:deploy": "npm run free:build && wrangler deploy -c deploy/free/wrangler.jsonc",
+    "free:build": "node deploy/free/build.ts",
+    "cf:deploy:container": "wrangler deploy",
+    "cf:dev:container": "wrangler dev"
   },
   "devDependencies": {
+    "@cloudflare/containers": "^0.3.7",
+    "@cloudflare/workers-types": "^5.20261001.1",
     "@modelcontextprotocol/client": "2.1.0",
     "@types/node": "26.6.3",
     "@types/sanitize-html": "2.16.1",
     "@types/turndown": "5.0.6",
+    "miniflare": "^5.20260930.0-alpha",
     "opentype.js": "1.3.4",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "wrangler": "^4.145.0"
+  },
+  "dependencies": {
+    "unpdf": "1.8.1"
+  },
+  "overrides": {
+    "fflate": "0.7.5"
   }
 }

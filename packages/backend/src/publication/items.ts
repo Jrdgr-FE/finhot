@@ -92,10 +92,11 @@ export function channelCondition(channel: ChannelKey | null | undefined) {
   return sql`AND p.channel = ${channel}`;
 }
 
-export function categoryCondition(category: CategoryKey | null | undefined, v1 = false) {
+export function categoryCondition(category: CategoryKey | null | undefined) {
   if (!category) return sql``;
-  // v1 and RSS publish opinion as tip.
-  if (v1 && category === "tip") return sql`AND p.category IN ('tip', 'opinion')`;
+  // 从前的第二参数 v1 只用于把 tip 展开成 (tip, opinion)——那是 AI 行业分类里
+  // 「教程」与「观点」共用一节而留下的 v1 兼容口径。换成金融分类后没有这种
+  // 一对多的分节，这个特例失去意义，已随分类一起移除。
   return sql`AND p.category = ${category}`;
 }
 

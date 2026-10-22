@@ -6,8 +6,16 @@ import { cached, type Cached } from "../lib/cache.ts";
 import { proxiedImage, proxiedImageSet } from "../media/imgproxy.ts";
 import { dailyUrl, itemUrl, siteUrl } from "./links.ts";
 import { SITE, withSubject } from "@aihot/industry/site";
+import { DOMAINS } from "@aihot/industry/domains";
+
+const domainLabel = (key: string) => DOMAINS.find((d) => d.key === key)?.label ?? key;
 
 export type { ReportKind };
+/** A stored kind: finance's daily/weekly/monthly, another domain's prefixed (ai-daily; industry/domains.ts). */
+export type StoredReportKind = ReportKind | `${string}-${ReportKind}`;
+/** The shape of a stored kind (ai-daily is a daily) and the domain prefix, if any. */
+export const baseKind = (kind: StoredReportKind) => kind.replace(/^[a-z]+-/, "") as ReportKind;
+const domainPrefix = (kind: StoredReportKind) => /^([a-z]+)-/.exec(kind)?.[1] ?? null;
 
 interface ReportRow {
   kind: ReportKind;
@@ -60,15 +68,15 @@ export async function unavailableIds(ids: string[]): Promise<Set<string>> {
 }
 
 /** Directory/feed metadata only: citation summaries and full report prose stay in the detail read. */
-export async function reportIndexRows(kind: ReportKind, limit: number) {
+export async function reportIndexRows(kind: StoredReportKind, limit: number) {
   return sql<{ key: string; content: Record<string, any>; generated_at: Date }[]>`
     SELECT key, generated_at, jsonb_build_object(
       'lead', content->'lead', 'headline', content->'headline', 'title', content->'title',
-      CASE WHEN kind = 'daily' THEN 'sections' ELSE 'themes' END,
-      jsonb_build_array(jsonb_build_object(CASE WHEN kind = 'daily' THEN 'items' ELSE 'storyRefs' END,
+      CASE WHEN kind LIKE '%daily' THEN 'sections' ELSE 'themes' END,
+      jsonb_build_array(jsonb_build_object(CASE WHEN kind LIKE '%daily' THEN 'items' ELSE 'storyRefs' END,
         (SELECT coalesce(jsonb_agg(jsonb_build_object('itemId', item->'itemId', 'title', item->'title') ORDER BY ord), '[]'::jsonb)
          FROM jsonb_array_elements(jsonb_path_query_array(content,
-           CASE WHEN kind = 'daily' THEN '$.sections[*].items[*]'::jsonpath ELSE '$.themes[*].storyRefs[*]'::jsonpath END
+           CASE WHEN kind LIKE '%daily' THEN '$.sections[*].items[*]'::jsonpath ELSE '$.themes[*].storyRefs[*]'::jsonpath END
          )) WITH ORDINALITY AS cited(item, ord))))) AS content
     FROM reports WHERE kind = ${kind} ORDER BY key DESC LIMIT ${limit}`;
 }
@@ -188,16 +196,17 @@ function readingMinutes(text: string): number {
   return Math.max(1, Math.round([...text].length / 450));
 }
 
-async function neighbors(kind: ReportKind, key: string): Promise<{ prev: string | null; next: string | null }> {
+async function neighbors(kind: StoredReportKind, key: string): Promise<{ prev: string | null; next: string | null }> {
   const [row] = await sql<{ prev: string | null; next: string | null }[]>`
     SELECT (SELECT key FROM reports WHERE kind = ${kind} AND key < ${key} ORDER BY key DESC LIMIT 1) AS prev,
       (SELECT key FROM reports WHERE kind = ${kind} AND key > ${key} ORDER BY key ASC LIMIT 1) AS next`;
   return { prev: row?.prev ?? null, next: row?.next ?? null };
 }
 
-export async function loadReport(kind: ReportKind, key: string): Promise<ReportDetail | null> {
-  const [r] = await sql<ReportRow[]>`SELECT kind, key, window_start, window_end, content, generated_at, revision FROM reports WHERE kind = ${kind} AND key = ${key}`;
+export async function loadReport(stored: StoredReportKind, key: string): Promise<ReportDetail | null> {
+  const [r] = await sql<ReportRow[]>`SELECT kind, key, window_start, window_end, content, generated_at, revision FROM reports WHERE kind = ${stored} AND key = ${key}`;
   if (!r) return null;
+  const kind = baseKind(stored), prefix = domainPrefix(stored);
   const c = r.content;
   const rawItems: Array<Record<string, any>> = [
     ...(c.sections ?? []).flatMap((s: any) => s.items ?? []),
@@ -225,10 +234,10 @@ export async function loadReport(kind: ReportKind, key: string): Promise<ReportD
   const text = [c.lead?.leadParagraph ?? "", c.overview ?? "", ...all.map((i: ReportCitation) => `${i.title}${i.summary ?? ""}`)].join("");
   // A weekly or monthly's picture comes from its first highlight and is captioned with that story.
   const leadItem = kind === "daily" ? leadItemOf(c.lead?.title, highlights, all) : (highlights[0] ?? all[0]);
-  const [{ prev, next }, picture] = await Promise.all([neighbors(kind, key), leadItem?.itemId && leadItem.available ? leadCover(leadItem.itemId) : null]);
+  const [{ prev, next }, picture] = await Promise.all([neighbors(stored, key), leadItem?.itemId && leadItem.available ? leadCover(leadItem.itemId) : null]);
   const cover = picture && leadItem ? { ...picture, caption: kind === "daily" ? null : leadItem.title } : null;
   const headline = kind === "daily" ? null : periodicHeadline(c);
-  const title = kind === "daily" ? `${withSubject("日报")} · ${key}` : String(c.title ?? (kind === "weekly" ? `${SITE.name} 周报 · ${key}` : `${SITE.name} 月报 · ${key}`));
+  const title = kind === "daily" ? `${prefix ? `${domainLabel(prefix)}日报` : withSubject("日报")} · ${key}` : String(c.title ?? (kind === "weekly" ? `${SITE.name} 周报 · ${key}` : `${SITE.name} 月报 · ${key}`));
   return {
     kind,
     key,

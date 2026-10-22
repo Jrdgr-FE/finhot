@@ -1,0 +1,20 @@
+[Unit]
+Description=FinHot publish public DTOs to Cloudflare
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=finhot
+Group=finhot
+WorkingDirectory=/opt/finhot/current
+EnvironmentFile=/etc/finhot/sync.env
+ExecStart=/opt/finhot/runtime/bin/node --max-old-space-size=192 deploy/ecs/push-public.ts
+TimeoutStartSec=600
+MemoryMax=256M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/finhot
+UMask=0077

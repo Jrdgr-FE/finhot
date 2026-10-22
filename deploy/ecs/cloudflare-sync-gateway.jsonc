@@ -1,0 +1,12 @@
+{
+  "$schema":"../../node_modules/wrangler/config-schema.json",
+  "name":"finhot-sync-gateway",
+  "account_id":"<CLOUDFLARE_ACCOUNT_ID>",
+  "main":"cloudflare-sync-worker.ts",
+  "compatibility_date":"2026-10-01",
+  "workers_dev":false,"preview_urls":false,"routes":[{"pattern":"sync.finhot.fun","custom_domain":true}],
+  "d1_databases":[{"binding":"DB","database_name":"finhot-public-sync","database_id":"<D1_DATABASE_ID>","migrations_dir":"migrations"}],
+  "vars":{"SITE_URL":"https://finhot-free.<your-subdomain>.workers.dev","SYNC_ONLY":"true"},
+  "ratelimits":[{"name":"AUTH_RATE_LIMITER","namespace_id":"1005","simple":{"limit":120,"period":60}}],
+  "observability":{"enabled":true,"head_sampling_rate":0.1}
+}

@@ -15,7 +15,7 @@ export async function registerEventJobs(boss: PgBoss) {
       // A discussion post comes here straight from collection: record it first (settleNonEditorial).
       if (job.data.signalOnly && !job.data.force && !(await settleNonEditorial(job.data.articleId)).group) return { verdict: "skipped" };
       const result = await groupArticle(job.data.articleId, { signalOnly: job.data.signalOnly, force: job.data.force });
-      if (result.storyId && !result.verdict.startsWith("signal")) {
+      if (process.env.FINHOT_STORY_DIGEST_ENABLED!=='false' && result.storyId && !result.verdict.startsWith("signal")) {
         await enqueue(QUEUES.digest, { storyId: result.storyId }, { singletonKey: `story:${result.storyId}`, startAfter: 60 });
       }
       return result;
@@ -27,6 +27,7 @@ export async function registerEventJobs(boss: PgBoss) {
   await ensureQueue(QUEUES.digest);
   await boss.work<{ storyId: number; afterCorrection?: boolean }>(QUEUES.digest, { localConcurrency: 3, pollingIntervalSeconds: 5 }, async ([job]) => {
     if (!job) return;
+    if(process.env.FINHOT_STORY_DIGEST_ENABLED==='false')return {state:'disabled'};
     return composeStoryDigest(job.data.storyId, { afterCorrection: job.data.afterCorrection });
   });
 }

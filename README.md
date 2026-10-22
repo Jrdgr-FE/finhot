@@ -1,3 +1,28 @@
+# FinHot
+
+FinHot 是一个金融垂类的热点资讯站：自动收集金融信源，用大模型筛选、打分、写中文摘要，聚合同一事件，每天出一份日报。线上站点：[finhot.fun](https://finhot.fun)。
+
+本仓库基于 [AIHOT](https://github.com/KKKKhazix/AIHOT)（MIT 协议，作者 数字生命卡兹克）改造而来，主要改动：
+
+- 金融信源、金融分类与精选标准（`industry/`），另有 AI / 硬科技领域的可选开关（`FINHOT_PUBLIC_DOMAINS`、`FINHOT_REPORT_DOMAINS`）。
+- 双语（英文默认、中文可切换）的公开前台，跑在 Cloudflare Workers + D1 上（`deploy/free/`、`deploy/ecs/cloudflare-sync-worker.ts`）。
+- 混合部署：采集、正文提取、模型摘要和 PostgreSQL 跑在一台自己的服务器上，每两分钟把公开结果主动同步到 Cloudflare（`deploy/ecs/`）。
+- 模型预算（每小时次数、滚动 24 小时金额）、PDF 正文提取、日报新版式等。
+
+**仓库里不含任何密钥、服务器地址或运营数据。** 想自己跑一个，见下面的「自己部署 FinHot」；下面接着是 AIHOT 原框架的文档，同样适用。
+
+## 自己部署 FinHot
+
+1. 复制配置：`cp .env.example .env`，填上自己的模型 Key（`LLM_API_KEY` 或 `DEEPSEEK_API_KEY` 等）、`ADMIN_PASSWORD`、`SESSION_SECRET`。`.env` 已被 `.gitignore` 忽略，不要提交。
+2. 最简单的方式是整站跑在一台机器上：`docker compose up -d`，与下文 AIHOT 的「跑起来」相同。
+3. 想用 Cloudflare 做前台（和 finhot.fun 一样）：
+   - 把 `deploy/ecs/*.jsonc` 和 `deploy/free/wrangler.jsonc` 里的 `<CLOUDFLARE_ACCOUNT_ID>`、`<CLOUDFLARE_ZONE_ID>`、`<D1_DATABASE_ID>`、`<your-subdomain>` 换成你自己的（`npx wrangler d1 create <名字>` 会给出 D1 ID），域名换成你的。
+   - 密钥只用 `npx wrangler secret put <名字>` 设置（如 `SYNC_TOKEN`、`ADMIN_PASSWORD`），不要写进 jsonc。
+   - 服务器上的同步进程用 `FINHOT_SYNC_URL`、`FINHOT_SYNC_TOKEN`（与 Worker 的 `SYNC_TOKEN` 相同，至少 32 位）把公开结果推到 Cloudflare。systemd 单元见 `deploy/ecs/*.service`，它们从 `/etc/finhot/<角色>.env` 读配置。
+4. 请换上你自己的站名和 Logo：FinHot 与 AIHOT 的名称和标志都不在 MIT 授权范围内。
+
+---
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.png">

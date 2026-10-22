@@ -46,7 +46,7 @@ async function report(suffix: string, opts: { title: string; backfill?: string; 
     publishedAt: opts.publishedAt ?? new Date(), backfill: opts.backfill ?? null,
   });
   await sql`INSERT INTO analyses (article_id, input_revision, origin, relevance, category, title_zh, summary_zh, score, selected, output)
-            VALUES (${articleId}, 1, 'rule', 'pass', 'ai-models', ${opts.title}, '摘要', 80, false, ${sql.json({ fact: { title: opts.title } })})`;
+            VALUES (${articleId}, 1, 'rule', 'pass', 'policy', ${opts.title}, '摘要', 80, false, ${sql.json({ fact: { title: opts.title } })})`;
   await publishArticle(articleId);
   return articleId;
 }
@@ -101,23 +101,23 @@ test("history waits behind live work and founds no event; a new source's post fr
 });
 
 test("a discussion post that quotes a post not yet collected joins its story when the original arrives", async () => {
-  // Dan Shipper's "SONNET 5.5 IS OUT!" quoted Anthropic's post a minute before it was collected; the
-  // original then joined the fact a report had already founded (same-fact: no new fact, no rematch).
+  // A讨论账号的「降准落地！」引用了人民银行的一条帖，比原帖被收录早一分钟；
+  // 原帖到达后与一篇报道已经建立的事实合并（same-fact：不新建事实、不重新匹配）。
   const tweetId = `9${Date.now()}`;
   const { articleId: postId } = await upsertMaterial({
-    sourceId: SIGNAL, url: `https://x.com/danshipper/status/1${Date.now()}`, title: `SONNET IS OUT! ${ALONE}`, via: "fetch", publishedAt: new Date(),
-    xPost: { tweetId: `1${Date.now()}`, authorName: "Dan", handle: "danshipper", text: "SONNET IS OUT!", quoted: { authorName: "Anthropic", handle: "AnthropicAI", text: "Introducing", url: `https://x.com/AnthropicAI/status/${tweetId}` } },
+    sourceId: SIGNAL, url: `https://x.com/ratewatcher/status/1${Date.now()}`, title: `降准！ ${ALONE}`, via: "fetch", publishedAt: new Date(),
+    xPost: { tweetId: `1${Date.now()}`, authorName: "Watcher", handle: "ratewatcher", text: "降准！", quoted: { authorName: "人民银行", handle: "PBOC_News", text: "Introducing", url: `https://x.com/PBOC_News/status/${tweetId}` } },
   });
   assert.deepEqual(await settleNonEditorial(postId), { group: true });
   assert.equal((await groupArticle(postId, { signalOnly: true })).verdict, "signal-unmatched");
 
-  const first = await groupArticle(await report("quoted-first", { title: `Anthropic 发布 ${TOPIC} Sonnet` }));
+  const first = await groupArticle(await report("quoted-first", { title: `人民银行发布 ${TOPIC} 公告` }));
   const { articleId: originalId } = await upsertMaterial({
-    sourceId: EDITORIAL, url: `https://x.com/AnthropicAI/status/${tweetId}`, title: `Introducing ${TOPIC} Sonnet`, bodyText: "Introducing.", bodyStatus: "ok",
-    via: "fetch", publishedAt: new Date(), xPost: { tweetId, authorName: "Anthropic", handle: "AnthropicAI", text: `Introducing ${TOPIC} Sonnet` },
+    sourceId: EDITORIAL, url: `https://x.com/PBOC_News/status/${tweetId}`, title: `Introducing ${TOPIC} 公告`, bodyText: "Introducing.", bodyStatus: "ok",
+    via: "fetch", publishedAt: new Date(), xPost: { tweetId, authorName: "人民银行", handle: "PBOC_News", text: `Introducing ${TOPIC} 公告` },
   });
   await sql`INSERT INTO analyses (article_id, input_revision, origin, relevance, category, title_zh, summary_zh, score, selected, output)
-            VALUES (${originalId}, 1, 'rule', 'pass', 'ai-models', ${`Anthropic 发布 ${TOPIC} Sonnet`}, '摘要', 80, false, ${sql.json({ fact: { title: "Sonnet" } })})`;
+            VALUES (${originalId}, 1, 'rule', 'pass', 'policy', ${`人民银行发布 ${TOPIC} 公告`}, '摘要', 80, false, ${sql.json({ fact: { title: "公告" } })})`;
   const joined = await groupArticle(originalId);
   assert.equal(joined.verdict, "same-fact");
   assert.equal(joined.storyId, first.storyId);

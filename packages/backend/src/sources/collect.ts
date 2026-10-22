@@ -5,6 +5,7 @@ import { identityKeyFor, upsertMaterial } from "../content/materials.ts";
 import { enqueue, QUEUES } from "../jobs/queue.ts";
 import { queueProcessing } from "../jobs/content.ts";
 import { BudgetExceededError } from "../providers/receipts.ts";
+import { publishArticle } from "../publication/publish.ts";
 import { fetchRss } from "./rss.ts";
 import { allowed, fetchDetail, fetchWebList, type DetailNeed } from "./web-list.ts";
 import { unsupportedConfig } from "./config-keys.ts";
@@ -76,7 +77,11 @@ async function store(sourceId: string, candidates: Candidate[], backfill: string
     if (res.created) created += 1;
     if (res.revised) revised += 1;
     // Extraction first when the source wants full text and none came with the listing, else analysis.
-    if (res.created || res.revised) await queueProcessing(res.articleId);
+    if (res.created || res.revised) {
+      // The all-items index can show the original title while the worker awaits body or model budget.
+      await publishArticle(res.articleId);
+      await queueProcessing(res.articleId);
+    }
   }
   return { created, revised };
 }

@@ -58,6 +58,8 @@ export interface ReceiptRequest {
   requestSummary?: Record<string, unknown>;
   /** Distinguishes an explicit re-run (e.g. admin "re-evaluate") from recovery of the same request. */
   attemptTag?: string;
+  /** Conservative maximum charge, persisted before sending. Required when the service has a money cap. */
+  reservedCost?: { amount: number; currency: string } | null;
 }
 
 export interface ReceiptResult {
@@ -81,9 +83,22 @@ interface ReceiptRow {
   updated_at: Date;
 }
 
-async function checkBudget(tx: Db, service: string): Promise<void> {
-  const [budget] = await tx<{ per_minute: number; per_hour: number; per_day: number }[]>`
-    SELECT per_minute, per_hour, per_day FROM budgets WHERE service = ${service}`;
+/** Retry when enough existing charges roll out, rather than an arbitrary extra hour. */
+async function moneyRetryAfter(tx:Db,service:string,shortfall:number,briefLane?:boolean):Promise<number>{
+  const [row]=await tx<{seconds:number|null}[]>`SELECT extract(epoch FROM min(release_at)-now())::float8 AS seconds FROM (
+    SELECT a.started_at+interval '1 day' AS release_at,
+      sum(coalesce(a.cost,a.reserved_cost)) OVER(ORDER BY a.started_at,a.id) AS released
+    FROM receipt_attempts a JOIN receipts r ON r.id=a.receipt_id
+    WHERE a.service=${service} AND a.origin='live' AND a.started_at>now()-interval '1 day'
+      ${briefLane===undefined?tx``:tx`AND (r.purpose IN ('brief_article','translate_public_en'))=${briefLane}`}
+    ) charges WHERE released>=${shortfall}`;
+  return row?.seconds==null?3600:Math.max(60,Math.ceil(row.seconds)+1);
+}
+
+async function checkBudget(tx: Db, req: ReceiptRequest): Promise<void> {
+  const service = req.service;
+  const [budget] = await tx<{ per_minute: number; per_hour: number; per_day: number; daily_cost_limit: number | null; cost_currency: string | null }[]>`
+    SELECT per_minute, per_hour, per_day, daily_cost_limit, cost_currency FROM budgets WHERE service = ${service}`;
   if (!budget) return; // default rows come with the migrations; a service an operator removed is unlimited
   // Every request sent counts, retries of the same logical request included.
   const [counts] = await tx<{ minute: number; hour: number; day: number }[]>`
@@ -100,6 +115,34 @@ async function checkBudget(tx: Db, service: string): Promise<void> {
   if (c.minute >= budget.per_minute) throw new BudgetExceededError(service, "minute", 60);
   if (c.hour >= budget.per_hour) throw new BudgetExceededError(service, "hour", 600);
   if (c.day >= budget.per_day) throw new BudgetExceededError(service, "day", 3600);
+  if (budget.daily_cost_limit !== null) {
+    const reserve = req.reservedCost;
+    if (!reserve || reserve.currency !== budget.cost_currency || !Number.isFinite(reserve.amount) || reserve.amount < 0) {
+      throw new BudgetExceededError(service, "unpriced request", 3600);
+    }
+    const [spent] = await tx<{ amount: number; unpriced: number }[]>`
+      SELECT coalesce(sum(CASE WHEN cost IS NOT NULL AND currency = ${budget.cost_currency} THEN cost
+                              WHEN reserved_currency = ${budget.cost_currency} THEN reserved_cost END), 0) AS amount,
+             count(*) FILTER (WHERE (cost IS NULL OR currency IS DISTINCT FROM ${budget.cost_currency})
+                               AND (reserved_cost IS NULL OR reserved_currency IS DISTINCT FROM ${budget.cost_currency}))::int AS unpriced
+      FROM receipt_attempts WHERE service = ${service} AND origin = 'live' AND started_at > now() - interval '1 day'`;
+    if (spent!.unpriced > 0 || spent!.amount + reserve.amount > budget.daily_cost_limit || budget.daily_cost_limit === 0) {
+      throw new BudgetExceededError(service, "daily cost", spent!.unpriced>0||budget.daily_cost_limit===0?3600:
+        await moneyRetryAfter(tx,service,spent!.amount+reserve.amount-budget.daily_cost_limit));
+    }
+    if(service==='llm'&&process.env.FINHOT_BRIEF_FIRST==='true') {
+      // Keep the overall cap; deployments can reserve more of it for selection.
+      const configured=Number(process.env.FINHOT_BRIEF_BUDGET_SHARE??'0.7');
+      const briefShare=Number.isFinite(configured)&&configured>=0.1&&configured<=0.9?configured:0.7;
+      const brief=['brief_article','translate_public_en'].includes(req.purpose),share=brief?briefShare:1-briefShare;
+      const [lane]=await tx<{amount:number}[]>`SELECT coalesce(sum(coalesce(a.cost,a.reserved_cost)),0) AS amount
+        FROM receipt_attempts a JOIN receipts r ON r.id=a.receipt_id
+        WHERE a.service='llm' AND a.origin='live' AND a.started_at>now()-interval '1 day'
+          AND (r.purpose IN ('brief_article','translate_public_en'))=${brief}`;
+      if(lane!.amount+reserve.amount>budget.daily_cost_limit*share)throw new BudgetExceededError(service,brief?'ordinary summaries':'selection review',
+        await moneyRetryAfter(tx,service,lane!.amount+reserve.amount-budget.daily_cost_limit*share,brief));
+    }
+  }
 }
 
 /**
@@ -123,13 +166,13 @@ export async function paidRequest(req: ReceiptRequest, call: () => Promise<CallO
       }
       if (existing.status === "unknown") return { kind: "unknown" as const, row: existing };
       // failed: the provider did not take the request, or its answer was unusable; a new attempt is allowed.
-      await checkBudget(tx, req.service);
+      await checkBudget(tx, req);
       const [r] = await tx<{ attempts: number }[]>`
         UPDATE receipts SET status = 'pending', attempts = attempts + 1, error = NULL, updated_at = now() WHERE id = ${existing.id} RETURNING attempts`;
       const attemptId = await startAttempt(tx, existing.id, r!.attempts, req);
       return { kind: "call" as const, id: existing.id, attemptId };
     }
-    await checkBudget(tx, req.service);
+    await checkBudget(tx, req);
     const [row] = await tx<{ id: number }[]>`
       INSERT INTO receipts (logical_key, service, model, purpose, subject, status, request, attempts)
       VALUES (${logicalKey}, ${req.service}, ${req.model ?? null}, ${req.purpose}, ${req.subject ?? null}, 'pending',
@@ -186,7 +229,8 @@ export async function paidRequest(req: ReceiptRequest, call: () => Promise<CallO
 
 async function startAttempt(tx: Db, receiptId: number, attempt: number, req: ReceiptRequest): Promise<number> {
   const [row] = await tx<{ id: number }[]>`
-    INSERT INTO receipt_attempts (receipt_id, attempt, service, model, status) VALUES (${receiptId}, ${attempt}, ${req.service}, ${req.model ?? null}, 'pending')
+    INSERT INTO receipt_attempts (receipt_id, attempt, service, model, status, reserved_cost, reserved_currency)
+    VALUES (${receiptId}, ${attempt}, ${req.service}, ${req.model ?? null}, 'pending', ${req.reservedCost?.amount ?? null}, ${req.reservedCost?.currency ?? null})
     RETURNING id`;
   return row!.id;
 }

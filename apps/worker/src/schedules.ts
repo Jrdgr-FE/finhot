@@ -11,7 +11,8 @@ import { refreshSourceIcons } from "@aihot/backend/sources/icons";
 import { computeHotRanking, snapshotHeat } from "@aihot/backend/events/hot";
 import { refreshStoryStatuses } from "@aihot/backend/events/digest";
 import { linkRelatedStories } from "@aihot/backend/events/group";
-import { catchUpReports, composeDaily, composeMonthly, composeWeekly } from "@aihot/backend/reports/compose";
+import { catchUpReports, repairEmptyDailyReports, composeDaily, composeMonthly, composeWeekly, reportDomains } from "@aihot/backend/reports/compose";
+import { DEFAULT_DOMAIN } from "@aihot/industry/domains";
 import { addDays, beijingDate, isoWeekLabel } from "@aihot/contracts/time";
 import { runLeaderboardRound } from "@aihot/backend/leaderboard/method/run";
 import { refreshLeaderboard } from "@aihot/backend/leaderboard/fetch/refresh";
@@ -25,6 +26,10 @@ import { backupConfigured, runBackup } from "@aihot/backend/operations/backup";
 import { sourceHealthWeekly } from "@aihot/backend/operations/reports";
 import { markStalePendingReceipts } from "@aihot/backend/providers/receipts";
 import { markStaleDeliveries } from "@aihot/backend/notify/deliver";
+import { purgeExpiredEdgeFeedback } from '@aihot/backend/operations/edge';
+import { recoverBodies } from '@aihot/backend/jobs/body-recovery';
+
+import {translatePublicCopy} from '@aihot/backend/editorial/public-copy-en';
 
 interface Scheduled {
   name: string;
@@ -36,6 +41,7 @@ interface Scheduled {
 const collecting = process.env.COLLECT_ENABLED !== "false";
 
 export const SCHEDULES: Scheduled[] = [
+  { name: 'content.public-copy-en', cron: '*/5 * * * *', run: () => translatePublicCopy() },
   { name: "content.sweep", cron: "*/5 * * * *", run: sweepUnprocessed },
   // Full-text translations of newly selected items (model calls; off with MODEL_CALLS_ENABLED=false).
   { name: "content.translate", cron: "*/5 * * * *", run: () => translatePending() },
@@ -44,6 +50,15 @@ export const SCHEDULES: Scheduled[] = [
   { name: "stories.status", cron: "7 * * * *", run: refreshStoryStatuses },
   { name: "stories.links", cron: "12 * * * *", run: linkRelatedStories },
   { name: "reports.daily", cron: "0 8 * * *", missed: "once", run: () => composeDaily(beijingDate(Date.now())) },
+  // Other domains' daily reports (FINHOT_REPORT_DOMAINS), five minutes later so they do not compete for the model.
+  {
+    name: "reports.daily.domains",
+    cron: "5 8 * * *",
+    missed: "once",
+    run: async () => {
+      for (const domain of reportDomains()) if (domain !== DEFAULT_DOMAIN) await composeDaily(beijingDate(Date.now()), "scheduled", domain);
+    },
+  },
   { name: "reports.weekly", cron: "0 10 * * 1", missed: "once", run: () => composeWeekly(isoWeekLabel(addDays(beijingDate(Date.now()), -7))) },
   {
     name: "reports.monthly",
@@ -54,6 +69,7 @@ export const SCHEDULES: Scheduled[] = [
       return composeMonthly(m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`);
     },
   },
+  { name: "reports.repair-empty", cron: "*/10 * * * *", run: () => repairEmptyDailyReports() },
   { name: "reports.catch-up", cron: "15 * * * *", run: () => catchUpReports() },
   { name: "ops.retention", cron: "30 3 * * *", missed: "once", run: () => dailyRetention() },
   { name: "sources.icons", cron: "40 4 * * *", missed: "once", run: () => refreshSourceIcons() },
@@ -71,6 +87,7 @@ export const SCHEDULES: Scheduled[] = [
   { name: "ops.digest", cron: "0 9 * * *", missed: "once", run: () => sendDigest() },
   // Feedback that did not reach the internal Feishu chat when it was sent (off with FEISHU_INTERNAL_ENABLED).
   { name: "feedback.forward", cron: "*/10 * * * *", run: () => forwardPendingFeedback() },
+  { name: 'feedback.edge-retention',cron:'0 * * * *',run:purgeExpiredEdgeFeedback },
   ...(backupConfigured() ? [{ name: "ops.backup", cron: "10 4 * * *", missed: "once" as const, run: () => runBackup() }] : []),
   { name: "reports.source-health", cron: "0 9 * * 1", missed: "once", run: () => sourceHealthWeekly() },
   // Four upstream checks a day; a new run is published only when the evidence changed. With collection
@@ -81,6 +98,7 @@ export const SCHEDULES: Scheduled[] = [
   ...(collecting
     ? [
         { name: "sources.schedule", cron: "* * * * *", run: () => scheduleDueSources() },
+        { name: 'content.body-recovery',cron:'*/15 * * * *',run:()=>recoverBodies() },
         { name: "sources.adapt-intervals", cron: "20 4 * * *", run: adaptIntervals },
         // WeChat official accounts (paid), each once per its interval.
         { name: "sources.mp-reconcile", cron: "*/15 * * * *", run: () => scheduleMpReconcile() },

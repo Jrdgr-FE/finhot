@@ -6,6 +6,7 @@ import { config, credential } from "../config.ts";
 import { sha256 } from "../lib/ids.ts";
 import { completeReceipt, paidRequest, ProviderRejectedError, rejectReceivedResponse } from "./receipts.ts";
 import { sql } from "../db.ts";
+import { reserveModelCharge, modelUsageCharge } from "./model-cost.ts";
 
 export interface ModelSpec {
   key: string;
@@ -94,6 +95,8 @@ export interface ChatJsonOptions<S extends z.ZodType> {
   schema: S;
   temperature?: number;
   maxTokens?: number;
+  /** Override the deployment-wide reasoning reserve for bounded tasks such as translation. */
+  reasoningHeadroom?: number;
   attemptTag?: string;
   timeoutMs?: number;
   /** false: the model answers in its own text format (no JSON mode); `parse` turns it into the schema's input. */
@@ -160,7 +163,11 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
   if (!baseUrl || !apiKey || !spec.model) throw new Error(`Model ${opts.model} is not configured (${spec.baseUrlEnv}, ${spec.apiKeyEnv}${spec.key === "default" ? ", LLM_MODEL" : ""})`);
 
   const temperature = opts.temperature ?? 0.2;
-  const maxTokens = Math.max(opts.maxTokens ?? 1500, 512) + (spec.key.endsWith("-think") ? 4000 : 0);
+  // Reasoning models bill their thinking against max_tokens. A model whose thinking cannot be switched
+  // off can spend a short budget (the prefilter's 512) entirely on it and return no content at all, so
+  // LLM_REASONING_HEADROOM adds room on top of every step's own budget.
+  const reasoningHeadroom = Math.max(0, Number(opts.reasoningHeadroom ?? process.env.LLM_REASONING_HEADROOM ?? 0) || 0);
+  const maxTokens = Math.max(opts.maxTokens ?? 1500, 512) + (spec.key.endsWith("-think") ? 4000 : 0) + reasoningHeadroom;
   const userText = typeof opts.user === "string" ? opts.user : JSON.stringify(opts.user);
   const body: Record<string, unknown> = {
     model: spec.model,
@@ -175,6 +182,7 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
     ...(spec.jsonMode && opts.json !== false ? { response_format: { type: "json_object" } } : {}),
     ...(spec.extra ?? {}),
   };
+  const charge = await reserveModelCharge(spec.service, spec.model, baseUrl, body);
 
   const receipt = await paidRequest(
     {
@@ -185,6 +193,7 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
       identity: { model: spec.model, promptVersion: opts.promptVersion, system: sha256(opts.system), user: sha256(userText), temperature, maxTokens, extra: spec.extra ?? null },
       requestSummary: { promptVersion: opts.promptVersion, systemHash: sha256(opts.system), userHash: sha256(userText), userChars: userText.length, temperature, maxTokens },
       attemptTag: opts.attemptTag,
+      reservedCost: charge,
     },
     async () => {
       const started = Date.now();
@@ -216,7 +225,7 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
         response: { ...json, _latencyMs: Date.now() - started },
         requestId: (json.id as string | undefined) ?? res.headers.get("x-request-id"),
         usage,
-        cost: null,
+        cost: modelUsageCharge(charge, usage),
       };
     },
   );

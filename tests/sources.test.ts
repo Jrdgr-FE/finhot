@@ -38,6 +38,12 @@ const pages: Record<string, (cdn: string) => string> = {
     `<content type="html"><![CDATA[<p>${"The feed carries this post whole, paragraph after paragraph. ".repeat(30)}</p>]]></content></entry></feed>`,
   // A list API that gives calendar days as yyyymmdd.
   "/days.json": () => JSON.stringify({ data: { list: [{ seq: 695, ttl: "MCFlow", day: "20260922" }, { seq: 1, ttl: "Bad day", day: "20260230" }] } }),
+  "/finance-dates.json": () => JSON.stringify([
+    { id: 1, title: "东财本地时间", date: "2026-09-30 15:03:16" },
+    { id: 2, title: "明确时区", date: "2026-09-30T15:03:16Z" },
+    { id: 3, title: "无效时间", date: "invalid" },
+  ]),
+  "/stats-dates.xml": () => `<rss version="2.0"><channel><title>统计局</title><item><title>数据发布</title><link>https://example.org/stats</link><pubDate>Wed, 30 Sep 2026 09:30:01</pubDate></item><item><title>明确时区</title><link>https://example.org/zoned</link><pubDate>Wed, 30 Sep 2026 09:30:01 GMT</pubDate></item></channel></rss>`,
   // Google Developers Blog: no date in the feed or in meta tags, only in JSON-LD.
   "/ld-post": () =>
     `<html><head><script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","name":"Blog"},` +
@@ -68,6 +74,16 @@ const pages: Record<string, (cdn: string) => string> = {
 };
 const server = http.createServer((req, res) => {
   const path = req.url ?? "";
+  if (path === "/finance-form.json") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      const valid = req.method === "POST" && req.headers["content-type"] === "application/x-www-form-urlencoded" && new URLSearchParams(body).get("category") === "财报;经营";
+      res.writeHead(valid ? 200 : 400, { "content-type": "application/json" });
+      res.end(JSON.stringify([{ id: "one", title: "业绩预告", company: "测试公司", code: "000001" }]));
+    });
+    return;
+  }
   const found = Object.hasOwn(pages, path);
   res.writeHead(found ? 200 : 404, { "content-type": path.endsWith(".js") ? "application/javascript" : "text/html; charset=utf-8" });
   res.end(found ? pages[path]!(`${site}/cdn/`) : "");
@@ -76,6 +92,32 @@ await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve
 const site = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 config.allowPrivateNetworkFetch = true;
 after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+test("JSON source timestamps honor the source timezone and keep explicit zones", async () => {
+  const cfg = { url: `${site}/finance-dates.json`, titlePaths: ["title"], urlTemplate: "https://example.org/{id}", publishedAtPath: "date", publishedAtUtcOffset: "+08:00" };
+  assert.deepEqual(unsupportedConfig("json_list", cfg), []);
+  const rows = await fetchJsonList(source(cfg));
+  assert.equal(rows[0]!.publishedAt?.toISOString(), "2026-09-30T07:03:16.000Z");
+  assert.equal(rows[1]!.publishedAt?.toISOString(), "2026-09-30T15:03:16.000Z");
+  assert.equal(rows[2]!.publishedAt, null);
+  const epoch = await fetchJsonList(source({ ...cfg, publishedAtUnit: "epoch_s" }));
+  assert.equal(epoch[2]!.publishedAt, null);
+});
+
+test("JSON disclosure sources submit forms and retain company identifiers", async () => {
+  const cfg = { url: `${site}/finance-form.json`, method: "POST", bodyForm: { category: "财报;经营" }, titlePaths: ["title"], titlePrefixPaths: ["company", "code"], urlTemplate: "https://example.org/{id}" };
+  assert.deepEqual(unsupportedConfig("json_list", cfg), []);
+  const rows = await fetchJsonList(source(cfg));
+  assert.equal(rows[0]!.title, "测试公司 · 000001 · 业绩预告");
+});
+
+test("RSS dates without a timezone honor the source timezone", async () => {
+  const cfg = { feedUrl: `${site}/stats-dates.xml`, publishedAtUtcOffset: "+08:00" };
+  assert.deepEqual(unsupportedConfig("rss", cfg), []);
+  const { candidates } = await fetchRss(source(cfg));
+  assert.equal(candidates[0]!.publishedAt?.toISOString(), "2026-09-30T01:30:01.000Z");
+  assert.equal(candidates[1]!.publishedAt?.toISOString(), "2026-09-30T09:30:01.000Z");
+});
 
 test("Jina card links become posts with their own titles", () => {
   const md = [
@@ -148,7 +190,7 @@ test("a listing that links other articles in its teasers takes only the links th
   const md = [
     "### [Amodei critics target Trump with hit piece before White House dinner](https://example.org/2026/09/27/amodei)",
     "[![Image 3: Scoop](https://example.org/a.jpg)](https://example.org/2026/09/27/dinner)",
-    "[Scoop: Anthropic's Dario Amodei to have White House dinner](https://example.org/2026/09/27/dinner)",
+    "[Scoop: 人民银行's 潘功胜 to have White House dinner](https://example.org/2026/09/27/dinner)",
     "[How Ed Sheeran's U.S. tour went off the rails in 3 weeks](https://example.org/2026/09/25/sheeran)[![Image 12: Ed Sheeran](https://example.org/b.jpg)](https://example.org/2026/09/25/sheeran)",
     "Ed Sheeran's two Gillette Stadium shows were canceled Friday, capping a [chaotic three weeks](https://example.org/2026/09/15/sheeran-loop).",
     "**Why it matters:** AI is energy-hungry. [Political divides](https://example.org/2026/09/24/climate-politics) can slow progress.",
@@ -157,7 +199,7 @@ test("a listing that links other articles in its teasers takes only the links th
   const config = { url: "https://r.jina.ai/https://example.org/technology", allowUrlPrefixes: ["https://example.org/2"], linksStartLine: true };
   assert.deepEqual(fromMarkdown(md, "https://example.org", source(config)).map((c) => c.title), [
     "Amodei critics target Trump with hit piece before White House dinner",
-    "Scoop: Anthropic's Dario Amodei to have White House dinner",
+    "Scoop: 人民银行's 潘功胜 to have White House dinner",
     "How Ed Sheeran's U.S. tour went off the rails in 3 weeks",
   ]);
   assert.equal(fromMarkdown(md, "https://example.org", source({ ...config, linksStartLine: undefined })).length, 5, "without the option prose links count");

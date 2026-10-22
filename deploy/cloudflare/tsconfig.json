@@ -1,0 +1,23 @@
+// Cloudflare Worker 外壳（deploy/cloudflare/worker.ts）的类型检查配置。
+//
+// 单独一份，是因为它和仓库主 tsconfig 的运行环境不同：主项目跑在 Node 上，这份跑在
+// Workers 运行时（没有 node:fs、没有 process），混在一起检查会互相污染。
+//
+// 检查前要先 `npm run cf:types` 生成 worker-configuration.d.ts——Env 类型在里面，
+// 缺失的话 worker.ts 里的 `Container<Env>` 找不到 Env。
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"lib": ["ES2022"],
+		"strict": true,
+		"noEmit": true,
+		"allowImportingTsExtensions": true,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		// 类型全部来自 worker-configuration.d.ts，不要自动加载 @types。
+		"types": []
+	},
+	"files": ["../../worker-configuration.d.ts", "./worker.ts"]
+}

@@ -1,577 +1,588 @@
 {
-  "exportedAt": "2026-09-26",
+  "exportedAt": "2026-09-30",
   "groups": [
     {
       "key": "company",
-      "name": "公司与模型",
-      "blurb": "按厂商与模型系追踪：谁发了什么、又赢了哪一局"
+      "name": "机构与监管",
+      "blurb": "按机构和监管部门追踪：谁发了什么、谁被罚了、谁换了人"
     },
     {
       "key": "field",
-      "name": "技术方向",
-      "blurb": "按技术领域深挖：Agent、多模态、具身智能……"
+      "name": "业务方向",
+      "blurb": "按业务深挖：货币政策、不良资产、注册制、养老金融……"
     },
     {
       "key": "genre",
       "name": "内容形态",
-      "blurb": "按内容类型浏览：论文、教程、观点、政策……"
+      "blurb": "按内容类型浏览：政策原文、监管处罚、财报、研报……"
     }
   ],
   "topics": [
     {
-      "slug": "openai",
-      "name": "OpenAI / ChatGPT",
+      "slug": "pbc",
+      "name": "中国人民银行",
       "group": "company",
-      "entityId": "openai",
+      "entityId": "pbc",
       "tags": [
-        "OpenAI",
-        "entity:openai"
+        "人民银行",
+        "entity:pbc"
       ],
-      "definition": "OpenAI 的全部动态：GPT 系列模型、ChatGPT 与 Sora 产品、公司战略与人事的持续追踪。",
+      "definition": "央行的全部动作：货币政策、公开市场操作、降准降息、金融数据发布，以及金融稳定与支付清算相关的表态。",
       "related": [
-        "anthropic",
-        "google",
-        "model-releases"
+        "monetary-policy",
+        "interest-rate",
+        "credit"
       ]
     },
     {
-      "slug": "anthropic",
-      "name": "Anthropic / Claude",
+      "slug": "nfra",
+      "name": "金融监管总局",
       "group": "company",
-      "entityId": "anthropic",
+      "entityId": "nfra",
       "tags": [
-        "Anthropic",
-        "entity:anthropic"
+        "金融监管总局",
+        "entity:nfra"
       ],
-      "definition": "Anthropic 的全部动态：Claude 系列模型、Claude Code、安全研究路线与公司进展的持续追踪。",
+      "definition": "国家金融监督管理总局的规则发布、行政处罚、机构设立与退出批复，覆盖银行、保险与非银机构。",
       "related": [
-        "openai",
-        "google",
-        "safety"
+        "penalties",
+        "policy-docs",
+        "capital"
       ]
     },
     {
-      "slug": "google",
-      "name": "Google / Gemini",
+      "slug": "csrc",
+      "name": "中国证监会",
       "group": "company",
-      "entityId": "google",
+      "entityId": "csrc",
       "tags": [
-        "Google",
-        "DeepMind",
-        "entity:google"
+        "证监会",
+        "entity:csrc"
       ],
-      "definition": "Google 与 DeepMind 的 AI 动态：Gemini 系列、Veo 视频模型、研究成果与产品生态的持续追踪。",
+      "definition": "证监会的规则、处罚与发行审核安排：注册制、IPO 与再融资节奏、退市、市场执法。",
       "related": [
-        "openai",
-        "anthropic",
-        "multimodal"
+        "ipo",
+        "penalties",
+        "market-moves"
       ]
     },
     {
-      "slug": "deepseek",
-      "name": "DeepSeek",
+      "slug": "state-banks",
+      "name": "国有大行",
       "group": "company",
-      "entityId": "deepseek",
       "tags": [
-        "DeepSeek",
-        "entity:deepseek"
+        "工商银行",
+        "农业银行",
+        "中国银行",
+        "建设银行",
+        "交通银行",
+        "邮储银行"
       ],
-      "definition": "DeepSeek（深度求索）的模型发布、开源权重与技术报告——开源大模型价格与性能双卷的风向标。",
+      "definition": "六大行的经营与政策角色：信贷投放、息差、资本补充、服务实体经济的任务与人事更替。",
       "related": [
-        "qwen",
-        "open-source",
-        "model-releases"
+        "credit",
+        "capital",
+        "earnings"
       ]
     },
     {
-      "slug": "qwen",
-      "name": "千问 Qwen",
+      "slug": "icbc",
+      "name": "工商银行",
       "group": "company",
-      "entityId": "qwen",
+      "entityId": "icbc",
       "tags": [
-        "entity:qwen"
+        "工商银行",
+        "entity:icbc"
       ],
-      "definition": "阿里千问 Qwen 系列的开源发布与迭代：从旗舰模型到端侧小模型的全谱系动态。",
+      "definition": "工商银行的经营数据、战略调整与海外布局——体量最大的一家，它的动作常被当作行业风向。",
       "related": [
-        "deepseek",
-        "kimi",
-        "open-source"
+        "state-banks",
+        "earnings",
+        "credit"
       ]
     },
     {
-      "slug": "kimi",
-      "name": "Kimi / 月之暗面",
+      "slug": "big-brokers",
+      "name": "头部券商",
       "group": "company",
-      "entityId": "kimi",
       "tags": [
-        "entity:kimi"
+        "中信证券",
+        "中金公司",
+        "国泰海通",
+        "华泰证券"
       ],
-      "definition": "月之暗面 Kimi 系列模型与产品动态：K 系列开源模型、长上下文技术与产品演进的追踪。",
+      "definition": "头部证券公司的经营、投行项目与整合动向。国泰海通是 2025 年国泰君安与海通证券合并后的主体。",
       "related": [
-        "qwen",
-        "deepseek",
-        "minimax"
+        "ipo",
+        "ma-deals",
+        "earnings"
       ]
     },
     {
-      "slug": "minimax",
-      "name": "MiniMax",
+      "slug": "citics",
+      "name": "中信证券",
       "group": "company",
-      "entityId": "minimax",
+      "entityId": "citics",
       "tags": [
-        "entity:minimax"
+        "中信证券",
+        "entity:citics"
       ],
-      "definition": "MiniMax 的模型与产品动态：M 系列大模型、语音与多模态能力、开源与商业化进展。",
+      "definition": "中信证券的经营数据、投行业务与自营表现，以及它作为行业龙头的动向。",
       "related": [
-        "kimi",
-        "qwen",
-        "voice"
+        "big-brokers",
+        "ipo",
+        "earnings"
       ]
     },
     {
-      "slug": "zhipu",
-      "name": "智谱 GLM",
+      "slug": "insurers",
+      "name": "头部险企",
       "group": "company",
-      "entityId": "zhipu",
       "tags": [
-        "entity:zhipu"
+        "中国人寿",
+        "中国平安",
+        "中国太保"
       ],
-      "definition": "智谱的 GLM 系列模型动态：旗舰开源发布、代码与推理能力迭代、商业化与生态进展的追踪。",
+      "definition": "大型保险集团的保费、投资与转型：寿险改革、渠道变化、险资运用与偿付能力。",
       "related": [
-        "qwen",
-        "kimi",
-        "open-source"
+        "capital",
+        "wealth",
+        "earnings"
       ]
     },
     {
-      "slug": "xai",
-      "name": "xAI / Grok",
+      "slug": "pingan",
+      "name": "中国平安",
       "group": "company",
-      "entityId": "xai",
+      "entityId": "pingan",
       "tags": [
-        "xAI",
-        "entity:xai"
+        "中国平安",
+        "entity:pingan"
       ],
-      "definition": "马斯克 xAI 与 Grok 系列的全部动态：模型迭代、算力扩张与 X 平台整合的持续追踪。",
+      "definition": "中国平安的综合金融与医疗养老布局、寿险改革进展，以及旗下银行证券各板块的经营。",
       "related": [
-        "openai",
-        "meta",
-        "industry"
+        "insurers",
+        "earnings",
+        "fintech"
       ]
     },
     {
-      "slug": "meta",
-      "name": "Meta / Llama",
+      "slug": "china-life",
+      "name": "中国人寿",
       "group": "company",
-      "entityId": "meta",
+      "entityId": "chinaLife",
       "tags": [
-        "Meta",
-        "entity:meta"
+        "中国人寿",
+        "entity:chinaLife"
       ],
-      "definition": "Meta 的 AI 动态：Llama 开源模型系列、超级智能实验室与元宇宙之外的 AI 豪赌。",
+      "definition": "中国人寿的保费与投资表现、个险队伍转型，以及国有保险集团的政策角色。",
       "related": [
-        "xai",
-        "open-source",
-        "industry"
+        "insurers",
+        "capital",
+        "earnings"
       ]
     },
     {
-      "slug": "microsoft",
-      "name": "Microsoft / Copilot",
+      "slug": "cinda",
+      "name": "中国信达与不良资产",
       "group": "company",
-      "entityId": "microsoft",
+      "entityId": "cinda",
       "tags": [
-        "Microsoft",
-        "entity:microsoft"
+        "中国信达",
+        "entity:cinda"
       ],
-      "definition": "微软的 AI 布局：Copilot 全家桶、Azure AI 基础设施与 OpenAI 合作关系的持续追踪。",
+      "definition": "全国性 AMC 的不良资产经营、风险化解项目与股权变动——地方债务与房地产风险的处置通道。",
       "related": [
-        "openai",
-        "coding",
-        "product-updates"
+        "npl",
+        "local-debt",
+        "ma-deals"
       ]
     },
     {
-      "slug": "nvidia",
-      "name": "NVIDIA 英伟达",
+      "slug": "exchanges",
+      "name": "沪深北交易所",
       "group": "company",
-      "entityId": "nvidia",
       "tags": [
-        "entity:nvidia"
+        "上交所",
+        "深交所",
+        "北交所"
       ],
-      "definition": "英伟达的 AI 芯片与生态动态：GPU 新品、CUDA 生态、机器人平台与 AI 算力市场的风向。",
+      "definition": "三大交易所的规则调整、上市与退市安排、交易机制变化与市场数据。",
       "related": [
-        "engineering",
-        "industry",
-        "embodied"
+        "ipo",
+        "market-moves",
+        "policy-docs"
       ]
     },
     {
-      "slug": "hugging-face",
-      "name": "Hugging Face",
-      "group": "company",
-      "entityId": "hugging-face",
-      "tags": [
-        "Hugging Face",
-        "entity:hugging-face"
-      ],
-      "definition": "Hugging Face 开源社区动态：热门模型与数据集、排行榜变化与开源生态的晴雨表。",
-      "related": [
-        "open-source",
-        "model-releases",
-        "data-training"
-      ]
-    },
-    {
-      "slug": "cursor",
-      "name": "Cursor",
-      "group": "company",
-      "entityId": "cursor",
-      "tags": [
-        "entity:cursor"
-      ],
-      "definition": "Cursor 编辑器的产品迭代与生态动态——AI 编码工具竞争中最受关注的玩家之一。",
-      "related": [
-        "coding",
-        "agent",
-        "product-updates"
-      ]
-    },
-    {
-      "slug": "openrouter",
-      "name": "OpenRouter",
-      "group": "company",
-      "entityId": "openrouter",
-      "tags": [
-        "entity:openrouter"
-      ],
-      "definition": "OpenRouter 模型路由平台动态：新模型上架、用量排行与开发者选型的真实市场信号。",
-      "related": [
-        "engineering",
-        "model-releases",
-        "open-source"
-      ]
-    },
-    {
-      "slug": "agent",
-      "name": "Agent 智能体",
+      "slug": "monetary-policy",
+      "name": "货币政策",
       "group": "field",
       "tags": [
-        "Agent"
+        "货币政策"
       ],
-      "definition": "让模型自主规划、调用工具、完成多步任务的技术方向——从 Claude Code、Manus 到各家 Agent 框架与评测基准的全部动态。",
+      "definition": "降准降息、MLF 与逆回购操作、结构性货币政策工具，以及货币政策委员会与中央经济工作会议的定调。",
       "related": [
-        "mcp",
-        "coding",
-        "reasoning"
+        "pbc",
+        "interest-rate",
+        "credit"
       ]
     },
     {
-      "slug": "coding",
-      "name": "AI 编码",
+      "slug": "interest-rate",
+      "name": "利率与资金面",
       "group": "field",
       "tags": [
-        "编码"
+        "利率"
       ],
-      "definition": "AI 写代码的一切：编码助手、Vibe Coding、代码模型评测与开发工作流变革。",
+      "definition": "政策利率与市场利率的变化、LPR 报价、银行间资金面与债券收益率曲线。",
       "related": [
-        "agent",
-        "cursor",
-        "tutorials"
+        "monetary-policy",
+        "credit",
+        "market-moves"
       ]
     },
     {
-      "slug": "reasoning",
-      "name": "推理能力",
+      "slug": "fx",
+      "name": "汇率与外汇",
       "group": "field",
       "tags": [
-        "推理"
+        "汇率"
       ],
-      "definition": "模型推理能力的进展：思维链、推理模型、数学与逻辑基准的突破与争议。",
+      "definition": "人民币汇率走势、结售汇与跨境资金流动、外汇储备，以及外汇管理政策调整。",
       "related": [
-        "papers",
-        "model-releases",
-        "agent"
+        "monetary-policy",
+        "opening",
+        "market-moves"
       ]
     },
     {
-      "slug": "multimodal",
-      "name": "多模态",
+      "slug": "credit",
+      "name": "信贷与社会融资",
       "group": "field",
       "tags": [
-        "多模态"
+        "信贷"
       ],
-      "definition": "文本之外的能力：视觉理解、图文混合、音视频输入输出的模型与产品进展。",
+      "definition": "新增信贷与社会融资规模、信贷投向结构、普惠与制造业中长期贷款，以及存款利率调整。",
       "related": [
-        "image-gen",
-        "video",
-        "voice"
+        "monetary-policy",
+        "state-banks",
+        "data-releases"
       ]
     },
     {
-      "slug": "image-gen",
-      "name": "图像生成",
+      "slug": "npl",
+      "name": "不良资产与风险处置",
       "group": "field",
       "tags": [
-        "图像生成"
+        "不良资产",
+        "处罚/风险"
       ],
-      "definition": "AI 画图的最前线：文生图模型迭代、图像编辑能力与创作工具生态的全部动态。",
+      "definition": "银行不良率与拨备、不良资产转让与处置、中小金融机构的风险化解与接管重整。",
       "related": [
-        "video",
-        "multimodal",
-        "product-updates"
+        "cinda",
+        "local-debt",
+        "property"
       ]
     },
     {
-      "slug": "video",
-      "name": "AI 视频",
+      "slug": "capital",
+      "name": "资本补充与偿付能力",
       "group": "field",
       "tags": [
-        "视频"
+        "资本补充",
+        "偿付能力"
       ],
-      "definition": "AI 视频生成与理解：文生视频模型、视频编辑工具与影视创作变革的追踪。",
+      "definition": "银行的资本充足率与资本工具发行、保险公司的偿付能力充足率与增资，以及监管对资本的要求。",
       "related": [
-        "image-gen",
-        "multimodal",
-        "voice"
+        "state-banks",
+        "insurers",
+        "policy-docs"
       ]
     },
     {
-      "slug": "voice",
-      "name": "语音与音频",
+      "slug": "wealth",
+      "name": "理财与资管",
       "group": "field",
       "tags": [
-        "语音"
+        "理财",
+        "资管新规"
       ],
-      "definition": "AI 语音与音频的进展：语音合成、实时对话、音乐生成与音频理解的模型与产品。",
+      "definition": "银行理财、公募与私募基金、信托与保险资管的产品、规模、费率与净值化转型。",
       "related": [
-        "multimodal",
-        "video",
-        "product-updates"
+        "insurers",
+        "products",
+        "interest-rate"
       ]
     },
     {
-      "slug": "embodied",
-      "name": "具身智能",
+      "slug": "ipo",
+      "name": "股票发行与注册制",
       "group": "field",
       "tags": [
-        "具身智能"
+        "IPO",
+        "注册制",
+        "再融资"
       ],
-      "definition": "AI 走进物理世界：人形机器人、具身基础模型与真实环境操作能力的进展追踪。",
+      "definition": "IPO 与再融资的受理、审核与发行节奏，注册制改革、承销保荐规则与北交所定位。",
       "related": [
-        "nvidia",
-        "multimodal",
-        "papers"
+        "csrc",
+        "big-brokers",
+        "market-moves"
       ]
     },
     {
-      "slug": "on-device",
-      "name": "端侧 AI",
+      "slug": "ma-deals",
+      "name": "并购重组",
       "group": "field",
       "tags": [
-        "端侧"
+        "并购/重组"
       ],
-      "definition": "跑在手机、电脑与边缘设备上的 AI：小模型、本地推理与端侧芯片的进展。",
+      "definition": "金融机构之间以及产业资本对金融机构的并购、股权受让与整合，含券商合并与中小银行重组。",
       "related": [
-        "engineering",
-        "open-source",
-        "model-releases"
+        "big-brokers",
+        "cinda",
+        "earnings"
       ]
     },
     {
-      "slug": "open-source",
-      "name": "开源生态",
+      "slug": "derivatives",
+      "name": "两融与衍生品",
       "group": "field",
       "tags": [
-        "开源生态",
-        "开源/仓库"
+        "两融",
+        "衍生品"
       ],
-      "definition": "开源模型、框架与仓库动态：权重开放、社区项目爆火、开源与闭源的力量消长。",
+      "definition": "融资融券余额与规则、场内外衍生品、期货与期权新品种上市及交易制度。",
       "related": [
-        "model-releases",
-        "hugging-face",
-        "coding"
+        "market-moves",
+        "csrc",
+        "securities"
       ]
     },
     {
-      "slug": "engineering",
-      "name": "部署工程",
+      "slug": "pension",
+      "name": "养老金融",
       "group": "field",
       "tags": [
-        "部署/工程"
+        "养老金融"
       ],
-      "definition": "把模型跑起来的工程实践：推理优化、显存与成本、Serving 架构与基础设施选型。",
+      "definition": "养老金三支柱、个人养老金制度、企业年金与职业年金，以及养老理财与养老保险产品。",
       "related": [
-        "open-source",
-        "data-training",
-        "on-device"
+        "insurers",
+        "wealth",
+        "policy-docs"
       ]
     },
     {
-      "slug": "data-training",
-      "name": "数据与训练",
+      "slug": "green",
+      "name": "绿色金融",
       "group": "field",
       "tags": [
-        "数据/训练"
+        "绿色金融"
       ],
-      "definition": "训练侧的门道：数据集构建、合成数据、预训练与后训练方法、算力与训练成本。",
+      "definition": "绿色信贷与绿色债券、碳市场与碳金融、转型金融标准与信息披露要求。",
       "related": [
-        "papers",
-        "engineering",
-        "model-releases"
+        "credit",
+        "policy-docs",
+        "products"
       ]
     },
     {
-      "slug": "safety",
-      "name": "安全对齐",
+      "slug": "fintech",
+      "name": "金融科技",
       "group": "field",
       "tags": [
-        "安全/对齐"
+        "金融科技",
+        "数字金融"
       ],
-      "definition": "AI 安全与对齐：越狱与防御、模型行为研究、安全评测与治理框架的进展。",
+      "definition": "数字人民币、支付清算、征信与数据要素、金融机构的数字化与人工智能应用，以及相关监管规则。",
       "related": [
-        "papers",
-        "policy",
-        "reasoning"
+        "policy-docs",
+        "products",
+        "aml"
       ]
     },
     {
-      "slug": "mcp",
-      "name": "MCP 与工具调用",
+      "slug": "aml",
+      "name": "反洗钱与合规",
       "group": "field",
       "tags": [
-        "MCP/工具调用"
+        "反洗钱"
       ],
-      "definition": "模型连接外部世界的协议与实践：MCP 生态、function calling、工具链集成的动态。",
+      "definition": "反洗钱与反诈要求、客户尽职调查、制裁与合规处罚，以及数据安全与个人信息保护。",
       "related": [
-        "agent",
-        "coding",
-        "open-source"
+        "penalties",
+        "fintech",
+        "policy-docs"
       ]
     },
     {
-      "slug": "model-releases",
-      "name": "模型发布",
-      "group": "genre",
+      "slug": "opening",
+      "name": "金融开放",
+      "group": "field",
       "tags": [
-        "模型发布"
+        "金融开放"
       ],
-      "definition": "新模型的发布、开源与迭代：大模型厂商的旗舰更新、开源权重放出、性能与价格变化的第一时间记录。",
+      "definition": "外资机构准入与展业、跨境互联互通（沪深港通、债券通）、自贸区金融政策与人民币国际化。",
       "related": [
-        "product-updates",
-        "papers",
-        "open-source"
+        "fx",
+        "policy-docs",
+        "market-moves"
       ]
     },
     {
-      "slug": "product-updates",
-      "name": "产品更新",
-      "group": "genre",
+      "slug": "local-debt",
+      "name": "地方债务",
+      "group": "field",
       "tags": [
-        "产品更新"
+        "地方债务"
       ],
-      "definition": "AI 产品与应用的功能上新、改版与商业化动态——谁家的产品变强了、变贵了、能用了。",
+      "definition": "地方政府债务化解、城投平台转型、隐性债务置换与相关金融机构的敞口。",
       "related": [
-        "model-releases",
-        "industry",
-        "coding"
+        "npl",
+        "cinda",
+        "credit"
       ]
     },
     {
-      "slug": "papers",
-      "name": "论文研究",
-      "group": "genre",
+      "slug": "property",
+      "name": "房地产金融",
+      "group": "field",
       "tags": [
-        "论文/研究"
+        "房地产金融"
       ],
-      "definition": "值得读的 AI 论文与研究成果：架构创新、训练方法、能力测量与理论进展的精选解读。",
+      "definition": "房地产融资协调机制、房贷利率与首付政策、房企债务重组与保交楼的资金安排。",
       "related": [
-        "reasoning",
-        "safety",
-        "data-training"
+        "credit",
+        "npl",
+        "local-debt"
       ]
     },
     {
-      "slug": "benchmarks",
-      "name": "评测基准",
-      "group": "genre",
+      "slug": "securities",
+      "name": "资本市场",
+      "group": "field",
       "tags": [
-        "评测/基准"
+        "市场/行情"
       ],
-      "definition": "模型到底谁强：Benchmark 成绩、评测方法论争议与排行榜变化的持续记录。",
+      "definition": "股票与债券市场的运行与制度：指数表现、资金面、投资者结构、交易与信息披露规则。",
       "related": [
-        "model-releases",
-        "papers",
-        "reasoning"
+        "market-moves",
+        "ipo",
+        "derivatives"
       ]
     },
     {
-      "slug": "tutorials",
-      "name": "教程实践",
-      "group": "genre",
-      "tags": [
-        "教程/实践"
-      ],
-      "definition": "拿来就能用的实操内容：提示词技巧、工作流搭建、工具用法与踩坑经验。",
-      "related": [
-        "coding",
-        "agent",
-        "product-updates"
-      ]
-    },
-    {
-      "slug": "opinions",
-      "name": "大佬观点",
-      "group": "genre",
-      "tags": [
-        "大佬观点"
-      ],
-      "definition": "行业关键人物在想什么：创始人访谈、研究者论战、投资人判断的观点集合。",
-      "related": [
-        "trends",
-        "industry"
-      ]
-    },
-    {
-      "slug": "trends",
-      "name": "现象与趋势",
-      "group": "genre",
-      "tags": [
-        "现象/趋势"
-      ],
-      "definition": "正在发生的行业级变化：使用习惯迁移、能力涌现、社会影响与市场格局的观察。",
-      "related": [
-        "opinions",
-        "industry",
-        "safety"
-      ]
-    },
-    {
-      "slug": "industry",
-      "name": "行业动态",
-      "group": "genre",
-      "tags": [
-        "行业动态"
-      ],
-      "definition": "AI 行业的商业脉搏：融资并购、人事变动、合作与竞争、政策与市场信号。",
-      "related": [
-        "trends",
-        "opinions",
-        "policy"
-      ]
-    },
-    {
-      "slug": "policy",
-      "name": "政策监管",
+      "slug": "policy-docs",
+      "name": "政策与规则",
       "group": "genre",
       "tags": [
         "政策/监管"
       ],
-      "definition": "AI 相关政策法规与政府监管动态：立法进展、出口管制与全球治理框架的追踪。",
+      "definition": "监管机构正式发布的办法、指引、通知与征求意见稿，以及官方对政策的解读。",
       "related": [
-        "industry",
-        "safety",
-        "trends"
+        "pbc",
+        "nfra",
+        "csrc"
+      ]
+    },
+    {
+      "slug": "penalties",
+      "name": "监管处罚",
+      "group": "genre",
+      "tags": [
+        "处罚/风险"
+      ],
+      "definition": "行政处罚决定、罚单、市场禁入与责令整改，以及机构被接管、破产重整等风险处置。",
+      "related": [
+        "nfra",
+        "csrc",
+        "aml"
+      ]
+    },
+    {
+      "slug": "data-releases",
+      "name": "数据发布",
+      "group": "genre",
+      "tags": [
+        "宏观/数据"
+      ],
+      "definition": "统计局、央行与外汇局定期发布的经济金融数据，以及市场对这些数据的解读。",
+      "related": [
+        "credit",
+        "monetary-policy",
+        "interest-rate"
+      ]
+    },
+    {
+      "slug": "market-moves",
+      "name": "市场行情",
+      "group": "genre",
+      "tags": [
+        "市场/行情"
+      ],
+      "definition": "股债汇商各市场的行情变化与制度调整。日常涨跌一般不进精选，除非背后有规则或数据上的原因。",
+      "related": [
+        "securities",
+        "ipo",
+        "derivatives"
+      ]
+    },
+    {
+      "slug": "earnings",
+      "name": "财报与业绩",
+      "group": "genre",
+      "tags": [
+        "财报/业绩"
+      ],
+      "definition": "上市金融机构的年报、中报、季报与业绩预告，以及业绩说明会上的关键表述。",
+      "related": [
+        "state-banks",
+        "insurers",
+        "big-brokers"
+      ]
+    },
+    {
+      "slug": "personnel",
+      "name": "人事变动",
+      "group": "genre",
+      "tags": [
+        "机构/人事"
+      ],
+      "definition": "金融机构与监管部门的高管任免、辞职与换届——金融行业的人事往往预示战略方向。",
+      "related": [
+        "nfra",
+        "csrc",
+        "state-banks"
+      ]
+    },
+    {
+      "slug": "products",
+      "name": "产品与发行",
+      "group": "genre",
+      "tags": [
+        "产品/发行"
+      ],
+      "definition": "理财、基金、保险与债券产品的发行、募集与费率调整，以及产品创新。",
+      "related": [
+        "wealth",
+        "insurers",
+        "green"
+      ]
+    },
+    {
+      "slug": "research",
+      "name": "研报与观点",
+      "group": "genre",
+      "tags": [
+        "研究/观点"
+      ],
+      "definition": "券商与评级机构的研究报告、经济学家与从业者的分析评论。个股目标价类内容会被压低。",
+      "related": [
+        "securities",
+        "market-moves",
+        "earnings"
       ]
     }
   ]

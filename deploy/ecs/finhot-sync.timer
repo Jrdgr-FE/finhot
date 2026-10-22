@@ -1,0 +1,9 @@
+[Unit]
+Description=FinHot publish results every two minutes
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=120
+AccuracySec=10
+Unit=finhot-sync.service
+[Install]
+WantedBy=timers.target

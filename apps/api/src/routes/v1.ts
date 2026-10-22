@@ -62,7 +62,9 @@ export function registerV1(app: FastifyInstance) {
     const mode = enumParam(q.mode, "mode", ["selected", "all"] as const, "selected");
     const window = enumParam(q.window, "window", ["24h", "7d"] as const, "7d");
     const by = enumParam(q.by, "by", ["timeline", "published"] as const, "timeline");
-    const category = q.category === undefined ? null : enumParam<PublicApiCategoryKey>(q.category, "category", PUBLIC_API_CATEGORY_KEYS, "tip");
+    // 第四个参数是 enumParam 的类型占位：这里 q.category 一定已定义，取值非法时 enumParam
+    // 直接抛 QueryError，所以它实际不会被用到。用行业分类里的兜底类别（表里最后一个）最不容易误导。
+    const category = q.category === undefined ? null : enumParam<PublicApiCategoryKey>(q.category, "category", PUBLIC_API_CATEGORY_KEYS, PUBLIC_API_CATEGORY_KEYS[PUBLIC_API_CATEGORY_KEYS.length - 1]);
     let search: string | null = null;
     if (q.q !== undefined) {
       search = q.q.trim();

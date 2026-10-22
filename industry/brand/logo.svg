@@ -1,1 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="116" fill="#13191c"/><path d="M256 92C271 199 313 241 420 256C313 271 271 313 256 420C241 313 199 271 92 256C199 241 241 199 256 92Z" fill="#2ce2e8"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="FinHot">
+  <!-- FinHot 标识：深青底上的三根上升柱 + 一个信号点。
+       语义是「市场数据 + 热度信号」，与同作者的 FinMap（中国金融机构图谱）共用一套色系：
+       底色 #1f4e5f 是 FinMap 的主强调色，#d79a5a 是它「证券」分类的色。
+       形状刻意做成柱形，与所用开源框架的原始标识完全不同——框架文档要求站点使用自己的标识。 -->
+  <rect width="512" height="512" rx="116" fill="#1f4e5f"/>
+  <g fill="#d79a5a">
+    <rect x="104" y="286" width="72" height="122" rx="14"/>
+    <rect x="220" y="212" width="72" height="196" rx="14"/>
+    <rect x="336" y="138" width="72" height="270" rx="14"/>
+  </g>
+  <circle cx="372" cy="104" r="34" fill="#7db4c7"/>
+</svg>

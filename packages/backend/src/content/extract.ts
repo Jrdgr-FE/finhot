@@ -11,12 +11,14 @@ import { getArticle } from "../providers/socialdata.ts";
 import { onlyXArticleLink, xArticleText } from "../sources/x.ts";
 import { sanitizeBody, trimTrailingChrome } from "./sanitize.ts";
 import { contentHash } from "./materials.ts";
+import { extractPdfFragment } from './pdf.ts';
 
 export interface ExtractedBody {
   html: string;
   text: string;
   images: Array<{ kind: "image"; url: string; width: number | null; height: number | null }>;
-  via: "readability" | "jina";
+  via: "readability" | "jina" | "pdf";
+  scope?: string;
 }
 
 const MIN_BODY_CHARS = 200;
@@ -68,26 +70,36 @@ function markdownToHtml(md: string): string {
     .join("");
 }
 
-export async function extractFromUrl(url: string, opts: { allowJina: boolean; subject: string }): Promise<ExtractedBody | null> {
+export async function extractFromUrl(url: string, opts: { allowJina: boolean; subject: string; failure?: (reason:string)=>void }): Promise<ExtractedBody | null> {
+  let reason='正文未识别';
   try {
     const res = await guardedFetch(url, { timeoutMs: 20_000, maxBytes: 6 * 1024 * 1024 });
     const type = res.headers.get("content-type") ?? "";
+    if(res.status===200&&(/application\/pdf/.test(type)||res.body.subarray(0,5).toString()==='%PDF-')) {
+      const got=await extractPdfFragment(new Uint8Array(res.body));
+      if(got.text.length>=100)return{html:'',text:got.text,images:[],via:'pdf',scope:got.scope};
+      reason='PDF 未提取到足够文字，可能为扫描件';
+    }
     if (res.status === 200 && /html/.test(type)) {
       const got = readable(res.text(), res.url);
       if (got) return got;
     }
-  } catch {
+    if(res.status!==200)reason=`原文返回 HTTP ${res.status}`;
+    else if(!/html|application\/pdf/.test(type)&&res.body.subarray(0,5).toString()!=='%PDF-')reason='原文内容类型暂不支持';
+  } catch (error) {
+    const message=error instanceof Error?error.message:'';
+    reason=/too large|6 MB/.test(message)?'原文超出 6 MB 获取上限':/timeout|timed out/i.test(message)||error instanceof Error&&error.name==='TimeoutError'?'原文访问或解析超时':'原文网络访问或解析失败';
     // fall through to Jina
   }
-  if (!opts.allowJina) return null;
+  if (!opts.allowJina){opts.failure?.(reason);return null;}
   try {
     const page = await jinaRead(url, { purpose: "body_fallback", subject: opts.subject });
     const html = trimTrailingChrome(sanitizeBody(markdownToHtml(page.markdown), url));
     const text = stripTags(html);
-    if (text.length < MIN_BODY_CHARS) return null;
+    if (text.length < MIN_BODY_CHARS){opts.failure?.(reason);return null;}
     return { html, text, images: [], via: "jina" };
   } catch (error) {
-    if (error instanceof BudgetExceededError) return null;
+    if (error instanceof BudgetExceededError){opts.failure?.(reason);return null;}
     throw error;
   }
 }
@@ -109,9 +121,11 @@ export async function extractArticleBody(articleId: string, allowJina = process.
     SELECT id, url, body_status, revision, x_post FROM articles WHERE id = ${articleId}`;
   if (!a || a.body_status === "ok") return "skipped";
   if (a.x_post?.tweetId) return extractXArticle(a.id, a.x_post.tweetId);
-  const got = await extractFromUrl(a.url, { allowJina, subject: `article:${a.id}` });
+  await sql`UPDATE articles SET body_fetch_attempts=body_fetch_attempts+1,body_checked_at=now() WHERE id=${articleId}`;
+  let failure='正文未识别';
+  const got = await extractFromUrl(a.url, { allowJina, subject: `article:${a.id}`,failure:reason=>{failure=reason;} });
   if (!got) {
-    await sql`UPDATE articles SET body_status = 'unconfirmed', updated_at = now() WHERE id = ${articleId} AND body_status <> 'ok'`;
+    await sql`UPDATE articles SET body_status = 'unconfirmed',body_failure=${failure}, updated_at = now() WHERE id = ${articleId} AND body_status <> 'ok'`;
     return "unconfirmed";
   }
   // The body is new content: a new revision, so an analysis of the body-less input counts as stale.
@@ -120,7 +134,7 @@ export async function extractArticleBody(articleId: string, allowJina = process.
     if (!row) return;
     const hash = contentHash({ title: row.title, bodyText: got.text, excerpt: row.excerpt });
     const [r] = await tx<{ revision: number }[]>`
-      UPDATE articles SET body_html = ${got.html}, body_text = ${got.text}, body_status = 'ok',
+      UPDATE articles SET body_html = ${got.html}, body_text = ${got.text}, body_status = 'ok',body_failure=NULL, material_scope=${got.scope ?? ''},
         media = CASE WHEN jsonb_array_length(media) = 0 THEN ${tx.json(got.images as never)}::jsonb ELSE media END,
         revision = revision + 1, content_hash = ${hash}, processing_state = 'new', updated_at = now()
       WHERE id = ${articleId} RETURNING revision`;

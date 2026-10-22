@@ -1,0 +1,14 @@
+{
+  "$schema":"../../node_modules/wrangler/config-schema.json",
+  "name":"finhot-sync-preview",
+  "account_id":"<CLOUDFLARE_ACCOUNT_ID>",
+  "main":"cloudflare-sync-worker.ts",
+  "compatibility_date":"2026-10-01",
+  "workers_dev":true,"preview_urls":false,"routes":[],
+  "assets":{"directory":"../../.data/build/hybrid/public","binding":"ASSETS","not_found_handling":"single-page-application","html_handling":"drop-trailing-slash","run_worker_first":true},
+  "d1_databases":[{"binding":"DB","database_name":"finhot-public-sync","database_id":"<D1_DATABASE_ID>","migrations_dir":"migrations"}],
+  "triggers":{"crons":[]},
+  "ratelimits":[{"name":"AUTH_RATE_LIMITER","namespace_id":"1003","simple":{"limit":120,"period":60}},{"name":"PUBLIC_RATE_LIMITER","namespace_id":"1004","simple":{"limit":240,"period":60}}],
+  "vars":{"SITE_URL":"https://finhot.fun","PREVIEW_ONLY":"true","PUBLIC_ONLY":"true"},
+  "observability":{"enabled":true,"head_sampling_rate":0.1}
+}
