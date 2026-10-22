@@ -1,201 +1,88 @@
 # FinHot
 
-FinHot 是一个金融垂类的热点资讯站：自动收集金融信源，用大模型筛选、打分、写中文摘要，聚合同一事件，每天出一份日报。线上站点：[finhot.fun](https://finhot.fun)。
+**金融人的每日信息台：自动盯盘公告、监管与研报，用大模型挑出真正重要的，写成中文摘要，每天早上 8 点出一份日报。**
 
-本仓库基于 [AIHOT](https://github.com/KKKKhazix/AIHOT)（MIT 协议，作者 数字生命卡兹克）改造而来，主要改动：
+线上站点：[finhot.fun](https://finhot.fun) · 配套的产业与公司图谱：[map.finhot.fun](https://map.finhot.fun)
 
-- 金融信源、金融分类与精选标准（`industry/`），另有 AI / 硬科技领域的可选开关（`FINHOT_PUBLIC_DOMAINS`、`FINHOT_REPORT_DOMAINS`）。
-- 双语（英文默认、中文可切换）的公开前台，跑在 Cloudflare Workers + D1 上（`deploy/free/`、`deploy/ecs/cloudflare-sync-worker.ts`）。
-- 混合部署：采集、正文提取、模型摘要和 PostgreSQL 跑在一台自己的服务器上，每两分钟把公开结果主动同步到 Cloudflare（`deploy/ecs/`）。
-- 模型预算（每小时次数、滚动 24 小时金额）、PDF 正文提取、日报新版式等。
+## 为什么做 FinHot
 
-**仓库里不含任何密钥、服务器地址或运营数据。** 想自己跑一个，见下面的「自己部署 FinHot」；下面接着是 AIHOT 原框架的文档，同样适用。
+金融信息的问题不是少，而是太多、太散、太吵：交易所公告、央行和监管的发布、统计局数据、券商研报、财经快讯，同一件事被转几十遍，真正影响判断的几条却容易被淹没。
 
-## 自己部署 FinHot
+FinHot 想做的是一个替你先读一遍的编辑：
 
-1. 复制配置：`cp .env.example .env`，填上自己的模型 Key（`LLM_API_KEY` 或 `DEEPSEEK_API_KEY` 等）、`ADMIN_PASSWORD`、`SESSION_SECRET`。`.env` 已被 `.gitignore` 忽略，不要提交。
-2. 最简单的方式是整站跑在一台机器上：`docker compose up -d`，与下文 AIHOT 的「跑起来」相同。
-3. 想用 Cloudflare 做前台（和 finhot.fun 一样）：
-   - 把 `deploy/ecs/*.jsonc` 和 `deploy/free/wrangler.jsonc` 里的 `<CLOUDFLARE_ACCOUNT_ID>`、`<CLOUDFLARE_ZONE_ID>`、`<D1_DATABASE_ID>`、`<your-subdomain>` 换成你自己的（`npx wrangler d1 create <名字>` 会给出 D1 ID），域名换成你的。
-   - 密钥只用 `npx wrangler secret put <名字>` 设置（如 `SYNC_TOKEN`、`ADMIN_PASSWORD`），不要写进 jsonc。
-   - 服务器上的同步进程用 `FINHOT_SYNC_URL`、`FINHOT_SYNC_TOKEN`（与 Worker 的 `SYNC_TOKEN` 相同，至少 32 位）把公开结果推到 Cloudflare。systemd 单元见 `deploy/ecs/*.service`，它们从 `/etc/finhot/<角色>.env` 读配置。
-4. 请换上你自己的站名和 Logo：FinHot 与 AIHOT 的名称和标志都不在 MIT 授权范围内。
+- **一手信源优先。** 63 个信源，从中国证监会、国家统计局、上交所、巨潮资讯，到美联储、欧洲央行、国际清算银行，再到华尔街见闻、东方财富研报、21 世纪经济报道、CNBC。
+- **按金融的逻辑分类。** 政策监管、宏观数据、市场行情、财报业绩、公司事件、投资研究，以及银行、证券、保险、资管、机构动态，共 11 类。
+- **按投资者的标准精选。** 评分标准写明了什么算重要：会改变规则、数据或公司基本面的消息排在前面；只复述行情的、把评级目标价当结论的，会被压下去。
+- **事实和预测分开。** 摘要会区分已经发生的事和机构的预测，不把原文没说的公司写进标题。
+- **同一件事只看一次。** 不同来源对同一事件的报道会合并成一个事件，热度按独立来源数计算。
 
----
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.png">
-    <img src="docs/assets/banner-light.png" alt="AIHOT：每个行业，都可以有自己的 AIHOT。很多条信源流进中间的精选，再分给法律、人力资源、金融等各个行业" width="100%">
-  </picture>
-</p>
-
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-176b75?style=flat-square" alt="MIT License"></a>
-  <img src="https://img.shields.io/badge/Node.js-24-176b75?style=flat-square&logo=nodedotjs&logoColor=white" alt="Node.js 24">
-  <img src="https://img.shields.io/badge/PostgreSQL-17-176b75?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 17">
-  <img src="https://img.shields.io/badge/Docker-Compose-176b75?style=flat-square&logo=docker&logoColor=white" alt="Docker Compose">
-  <a href="https://aihot.news"><img src="https://img.shields.io/badge/demo-aihot.news-202a30?style=flat-square" alt="aihot.news"></a>
-</p>
-
-<p align="center">
-  <b>一个自己找热点、自己写日报的网站框架。</b><br>
-  把信源换成你的，把精选标准换成你的 KnowHow，它就是你的行业热点站。
-</p>
-
-<p align="center">
-  <a href="#跑起来">跑起来</a> ·
-  <a href="docs/customize.md">改成你的行业</a> ·
-  <a href="#它是怎么工作的">它是怎么工作的</a> ·
-  <a href="#文档">文档</a>
-</p>
-
-<br>
-
-## 这是什么
-
-[AIHOT](https://aihot.news) 是我做的一个 AI 热点网站。它每天从一批信源里收资料，用大模型先筛一遍、再独立打两次分，挑出真正值得看的，写成中文标题和摘要；把不同来源说的同一件事聚成一个事件，按有多少人在说排出热点；每天早上出一份日报。
-
-这个仓库是它的完整框架：网站、后台、精选流程、聚簇和热度算法，**所有提示词的原文和入选门槛**，都在这里。
-
-## 为什么开源
-
-这半年，很多做法律、做 HR、做金融、做贵金属的朋友问我，能不能也给他们的行业做一个。
-
-我做不了。我不懂你们的行业，不知道哪些信源有用，也不知道什么样的消息，对你们来说才叫热点。
-
-但你们懂。
-
-既然我没办法满足所有人，那就把火种交到大家自己手上。
-
-## 说在前面
-
-- **我不是专业的开发者。** 我是设计师出身，半年前还看不太懂代码。这套代码是我和 AI 一起重写的，比以前干净了很多，但一定还有写得不好的地方。发现问题欢迎提 Issue，我不一定能很快回复，先说声抱歉。
-- **这是一份快照。** 它来自 AIHOT 正在线上跑的代码，不是精心打磨的通用框架。以后 AIHOT 的更新，我会尽量同步过来，但没法保证每一次都同步。
-- **里面没有 AIHOT 的信源名单和运营数据。** 仓库带了 18 个公开的海外 AI 资讯源做示范，够你跑起来看效果；真正的信源，要换成你自己行业的。
-- **请不要用 AIHOT 的名字和 Logo。** 换上你自己的名字，它就是你的站。
-
-## 它是怎么工作的
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/how-dark.png">
-  <img src="docs/assets/how-light.png" alt="六步：采集、预筛、两次评分、写作、聚簇、热点与成刊" width="100%">
-</picture>
-
-一条资料从信源进来，先判重，再预筛；可能重要的独立打两次分，过了门槛才进精选；然后写中文标题和摘要，和别的报道聚成事件，算进热度，最后进日报。每一步的提示词都在 [`industry/prompts/`](industry/prompts/)，改标准不用改代码。详见 [精选与校准](docs/selection.md)。
-
-### 聚簇与热点
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/cluster-dark.png">
-  <img src="docs/assets/cluster-light.png" alt="五个来源的报道聚成一个事件，事件进入当前热点榜" width="100%">
-</picture>
-
-同一件事，官网发一篇、媒体转十篇、X 上吵一天，读者只需要看到一次。AIHOT 把它们聚成一个**事件**：先用标题摘要的向量在最近两周里找候选，再让模型判断是同一件事、后续进展，还是两件事；拿不准的合并，换一家模型再确认一遍。
-
-**热度**按事件算，不按文章算：48 小时内，每个独立来源只算一次，24 小时减半。重复抓取不会多算，一家媒体发十篇也只算一次，所以排在前面的，是真正有很多人在说的事。
-
-### 速度
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/perf-dark.png">
-  <img src="docs/assets/perf-light.png" alt="AIHOT 线上实测：页面中位数 10 毫秒，95% 在 50 毫秒内；接口中位数 6 毫秒，95% 在 12 毫秒内；文章页 95% 在 14 毫秒内" width="100%">
-</picture>
-
-## 你会得到什么
+## 主要功能
 
 | | |
 |---|---|
-| **六种信源** | RSS、网页列表、JSON 接口、X 账号、微信公众号，以及你自己脚本推送进来的内容。信源分级（官方一手 / 媒体个人），抓取频率按产出自动调整 |
-| **精选** | 预筛，同一份评分标准独立打两次分，再按信源分级的门槛决定入选。提示词和门槛全部公开，全部可以改；用你自己标注的样本在 SelectBench 里校准 |
-| **写作** | 中文标题、答案先行的摘要、推荐理由、标签，外文全文翻译；防止模型把原文没提到的公司写进标题 |
-| **聚簇** | 不同来源报道的同一件事聚成一个事件，后续进展挂在同一个事件下，事件页有综述；人工改过的归属不会被覆盖 |
-| **热点** | 按事件算热度：独立来源越多越靠前，X 上的讨论也算进来；和 6 小时前比，涨得快的标上升，新出现的标“新” |
-| **日报、周报、月报** | 每天 08:00 出日报，每周一出周报，每月 1 日出月报，按分类分节，带导语 |
-| **主题与搜索** | 公司、方向、内容形态三类主题页；标题摘要搜索和全文相关搜索 |
-| **给 Agent 用** | RSS（精选、全部、全文、日报）、公开 API、MCP、`llms.txt`，同一份内容给人看也给 Agent 用 |
-| **后台** | 信源管理与试抓、内容诊断、精选评测、每一步单独换模型、付费服务的预算熔断、运行记录与告警 |
-| **AI 专属模块** | 模型榜（汇总多家公开评测，方法公开）和 Codex 重置监控。别的行业一个开关关掉 |
+| **金融分类与实体库** | 11 个金融分类，内置人民银行、金融监管总局、证监会、外汇局、三大交易所、主要银行等实体及别名，标签统一 |
+| **双领域** | 金融之外，还可以打开「AI 与硬科技」领域（模型、芯片与半导体、算力、机器人与具身智能等），每个领域有自己的评分标准、门槛和日报，一条资料可以同时属于两个领域 |
+| **日报** | 北京时间每天 08:00 生成，按板块分节，带导语和来源索引 |
+| **中英双语** | 公开站点默认英文、可切换中文，可选为精选内容生成英文标题与摘要 |
+| **PDF 正文** | 交易所公告、研报这类 PDF 会提取正文后再交给模型 |
+| **成本可控** | 模型调用按每小时次数和滚动 24 小时金额双重限额，超额自动暂停，历史资料只建索引、不花钱 |
+| **轻量前台** | 公开页面跑在 Cloudflare Workers + D1 上，访客请求不回源服务器、不触发模型 |
+| **给 Agent 用** | RSS、公开 API、MCP、`llms.txt` |
 
-## 看一眼
+## 架构
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/shots-dark.png">
-  <img src="docs/assets/shots-light.png" alt="首页的当前热点与精选，关于页的信源河" width="100%">
-</picture>
+```
+信源 ──► 服务器（采集 · 正文/PDF 提取 · 模型筛选与摘要 · 事件聚合 · 日报 · PostgreSQL）
+                       │ 每 2 分钟推送公开结果
+                       ▼
+          Cloudflare Workers + D1（公开页面、搜索、RSS、日报）──► 读者
+```
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/board-dark.png">
-  <img src="docs/assets/board-light.png" alt="模型榜" width="100%">
-</picture>
+也可以不用 Cloudflare，整站用 Docker Compose 跑在一台机器上。
 
-<p align="center"><sub>截图来自用示范信源跑起来的本地站，站名是默认的 MyHOT。</sub></p>
+技术栈：Node.js 24 · TypeScript · React Router · Fastify · PostgreSQL · pg-boss · Cloudflare Workers / D1 · Docker Compose。
 
 ## 跑起来
 
-需要 [Docker](https://docs.docker.com/get-docker/)，和一个 OpenAI 兼容的模型 API Key（DeepSeek、千问、智谱都可以）。
+需要 [Docker](https://docs.docker.com/get-docker/) 和一个 OpenAI 兼容的模型 API Key（DeepSeek、千问、智谱都可以）。
 
 ```bash
-git clone https://github.com/KKKKhazix/AIHOT.git myhot
-cd myhot
+git clone https://github.com/Jrdgr-FE/finhot.git
+cd finhot
 node scripts/init-env.ts --llm-key <你的模型 API Key>
 docker compose up -d --build
 ```
 
-打开 <http://localhost:3000>。后台在 `/admin`，管理员密码在 `.env` 的 `ADMIN_PASSWORD` 里。一两分钟后开始有内容，第一次导入的资料大约半小时处理完。
+打开 <http://localhost:3000>，后台在 `/admin`，管理员密码在 `.env` 的 `ADMIN_PASSWORD` 里。所有配置项见 [`.env.example`](.env.example)。`.env` 已被忽略，不会被提交。
 
-机器上没有 Node、服务器在中国大陆、要配域名和 HTTPS，见 [部署](docs/deploy.md)。
+### 和 finhot.fun 一样，用 Cloudflare 做前台
 
-## 把它改成你的行业
+1. 把 `deploy/ecs/*.jsonc` 和 `deploy/free/wrangler.jsonc` 里的 `<CLOUDFLARE_ACCOUNT_ID>`、`<CLOUDFLARE_ZONE_ID>`、`<D1_DATABASE_ID>`、`<your-subdomain>` 和域名换成你自己的（`npx wrangler d1 create <名字>` 会给出 D1 ID）。
+2. 密钥只用 `npx wrangler secret put <名字>` 设置（如 `SYNC_TOKEN`、`ADMIN_PASSWORD`），不要写进配置文件。
+3. 服务器上的同步进程用 `FINHOT_SYNC_URL` 和 `FINHOT_SYNC_TOKEN`（与 Worker 的 `SYNC_TOKEN` 相同，至少 32 位）推送公开结果。systemd 单元在 `deploy/ecs/*.service`，从 `/etc/finhot/<角色>.env` 读配置。
 
-最省事的办法：打开你的 Agent（Claude Code、Codex 都可以），把这个仓库交给它，然后说：
+## 定制
 
-```text
-请读 AGENTS.md 和 docs/customize.md，把这个站改成「法律」行业的热点站。
-我关心的是：……（你想盯哪些信源，你觉得什么消息重要、什么不重要，越具体越好）。
-```
+信源、分类、精选标准和文案几乎都在 [`industry/`](industry/) 里，改它们基本不用动代码：
 
-要改的东西几乎都在 [`industry/`](industry/) 这一个文件夹里，代码基本不用动：
-
-| 文件 | 改什么 |
+| 文件 | 内容 |
 |---|---|
-| `site.ts` | 站名、行业词、首页文案、关于页 |
-| `taxonomy.ts`、`topics.json` | 分类、标签、主题 |
-| `sources.json` | 首次启动时导入的信源 |
-| `prompts/` | 精选标准和写作要求。**你的行业 KnowHow，就写在这里** |
-| `selection.ts` | 入选门槛 |
-| `features.ts` | 模型榜、Codex 重置监控的开关 |
-| `brand/`、`pages/` | 图标、使用规则和隐私说明 |
+| `sources.json` | 信源列表 |
+| `taxonomy.ts`、`domains.ts` | 分类、实体库、领域开关 |
+| `prompts/` | 评分标准与写作要求，`*.ai.md` 是 AI 与硬科技领域的版本 |
+| `selection.ts`、`prescreen.ts` | 入选门槛与预筛规则 |
+| `site.ts`、`brand/`、`pages/` | 站名、文案、图标、使用规则与隐私说明 |
 
-最值得花时间的是评分标准（`prompts/selection-score.md`）和门槛：拿一两百条你自己标注过的资料，用 `scripts/eval-selection.ts` 跑一遍，看它选得准不准，再回去改。怎么做写在 [精选与校准](docs/selection.md) 里。
+更多说明：[定制](docs/customize.md) · [信源](docs/sources.md) · [精选与校准](docs/selection.md) · [部署](docs/deploy.md) · [架构](docs/architecture.md)
 
-## 文档
+## 致谢
 
-| 文档 | 内容 |
-|---|---|
-| [把它改成你的行业](docs/customize.md) | 站名、分类、信源、提示词、门槛、品牌，一步一步来 |
-| [信源](docs/sources.md) | 六种信源怎么配，分级和全文，外部推送接口 |
-| [精选与校准](docs/selection.md) | 一条资料怎么变成精选，怎么用自己的样本校准 |
-| [部署](docs/deploy.md) | Docker、域名和 HTTPS、中国大陆、更新、备份、花多少钱 |
-| [架构](docs/architecture.md) | 三个进程、几条不变的规则、目录、对外出口 |
-| [模型榜与 Codex 重置监控](docs/leaderboard.md) | 两个 AI 专属模块 |
-
-技术栈：Node.js 24 · TypeScript · React Router（服务端渲染）· Fastify · PostgreSQL · pg-boss · Tailwind CSS · Docker Compose。
-
-## 最后
-
-AIHOT 曾经只是我无数个深夜里，一个很小、很小的念头。
-
-我不知道它会被改成什么样子，会走到多远的地方。但这可能就是开源最浪漫的地方。
-
-剩下的路，就交给你们了。
-
-<p align="right">—— 数字生命卡兹克</p>
+FinHot 基于 [AIHOT](https://github.com/KKKKhazix/AIHOT)（作者 数字生命卡兹克，MIT 许可）的开源框架开发，采集、评分、聚类和热度算法的基础来自这个项目，感谢原作者。
 
 ## 许可
 
-代码使用 [MIT 许可证](LICENSE)。AIHOT 的名字和 Logo 不在许可范围内。字体、模型厂商和评测来源的标志各有自己的许可和商标归属，见 [NOTICE](NOTICE)。
+代码使用 [MIT 许可证](LICENSE)。FinHot 与 AIHOT 的名称和标志不在许可范围内，自己部署时请换上你自己的。字体与第三方标志的许可见 [NOTICE](NOTICE)。
 
 ---
 
-<sub>**In English:** AIHOT ([aihot.news](https://aihot.news)) is an AI news site that collects from many sources, lets a language model filter and score every item twice, writes Chinese headlines and summaries, clusters reports of the same story into one event, ranks events by how many independent sources discuss them, and publishes a daily briefing. This repository is its complete framework, including every prompt and threshold. Hand it to your coding agent with `AGENTS.md` and `docs/customize.md` to turn it into a news site for your own field. The documentation is in Chinese.</sub>
+<sub>**In English:** FinHot ([finhot.fun](https://finhot.fun)) is a finance news desk. It watches 63 primary and media sources (exchanges, regulators, central banks, statistics bureaus, broker research, financial press), lets a language model score and summarize each item, merges reports of the same event, ranks events by independent sources and publishes a daily briefing at 08:00 Beijing time. An optional AI & deep-tech domain runs alongside finance. The public site runs on Cloudflare Workers + D1; the pipeline runs on your own server. Built on the open-source AIHOT framework (MIT). Documentation is in Chinese.</sub>
