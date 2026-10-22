@@ -16,6 +16,11 @@ const research = (id: string) => /^eastmoney-research-\d+$/.test(id);
 /** Chinese market news feeds whose recaps and flash templates were never selected. */
 const marketNews = among('sina-market', '21jingji-capital', '21jingji-company', 'json-eastmoney-news', 'json-wscn-articles');
 
+/** Finance news and research sources (exchange filings and the AI sources have their own rules). */
+const finance = (id: string) => !id.startsWith('ai-') && !id.startsWith('cninfo-');
+/** Regulator actions on products and government bond issuance are news, not marketing. */
+const FUND_RULE_NEWS = /证监会|金融监管总局|交易所.{0,6}(?:发布|通知|规则)|获批|批复|核准|准予注册|处罚|叫停|暂停|整改|办法|规定|指引|征求意见|国债|地方债|专项债|特别国债|央票/;
+
 const ai = (id: string) => id.startsWith('ai-');
 /** AI vendor newsrooms and blogs, where customer stories sit between the launches. */
 /** (Google's own posts are left out: there "with Gemini 3.5 X" names a launch.) */
@@ -39,6 +44,10 @@ const RULES: Rule[] = [
     title: /周报|月报|日报|晨报|早报|周刊|周度|月度|双周|周观察|周回顾|周评|月评|行情监测|价格监测|监测周/ },
   { id: 'research-other', action: 'brief', sources: research,
     title: /^(?!.*(?:点评|快评|解读|数据|政策|策略|宏观|会议|意见|办法|规定|规则))/ },
+  // Fund and wealth-product marketing: a manager buying its own funds, launches and subscription pushes.
+  // The regulator's approval of a new product class and bond issuance keep the full path.
+  { id: 'fund-marketing', action: 'index', sources: finance, unless: FUND_RULE_NEWS,
+    title: /自购|跟投|(?:自有|固有)资金.{0,12}(?:投资|认购)|(?:基金|ETF|LOF|FOF|理财|产品|新品).{0,12}(?:发行|首发|认购|募集|发售|开售|开卖|上新|上市首日|售罄|爆款|定档)|(?:明日|今日|即将|正式|火热|重磅|起)(?:发行|发售|开售|开卖|认购)|周[一二三四五六日]开(?:售|卖)|(?:发行|发售|认购)首日|一日售罄|日光基|顶流基金经理|公募一哥/ },
   // Market recaps and flash templates.
   { id: 'market-template', action: 'brief', sources: marketNews,
     title: /午评|收评|早评|盘前|盘中|收盘|开盘|尾盘|涨停|跌停|异动|龙虎榜|融资融券|两融|主力资金|北向资金|南向资金|大宗交易|ETF|指数.{0,8}(?:涨|跌|新高|新低)|(?:涨|跌)(?:超|逾|近)\d|\d+只.{0,12}(?:涨|跌)|板块.{0,8}(?:走强|走弱|拉升|跳水|异动)|概念股|港股通|斥资.{0,12}回购/ },

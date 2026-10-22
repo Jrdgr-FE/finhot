@@ -110,7 +110,7 @@ async function recallPool(withWaiting = false): Promise<PoolRow[]> {
 }
 
 /** The public title and summary of reports (the analysis when a report has no publication yet). */
-async function reportTexts(ids: string[]): Promise<Map<string, string>> {
+export async function reportTexts(ids: string[]): Promise<Map<string, string>> {
   if (ids.length === 0) return new Map();
   const rows = await sql<{ id: string; title: string; summary: string | null }[]>`
     SELECT a.id, coalesce(p.title, an.title_zh, a.title) AS title, coalesce(p.summary, an.summary_zh, '') AS summary
@@ -125,7 +125,7 @@ async function reportTexts(ids: string[]): Promise<Map<string, string>> {
 // (and stored) again. Grouping is serial, so one process holds the whole window.
 const vectorCache = new Map<string, { hash: string; vector: Float32Array }>();
 
-async function vectorsFor(items: Array<{ id: string; text: string }>): Promise<Map<string, Float32Array>> {
+export async function vectorsFor(items: Array<{ id: string; text: string }>): Promise<Map<string, Float32Array>> {
   const out = new Map<string, Float32Array>();
   const missing: Array<{ id: string; text: string; hash: string }> = [];
   for (const it of items) {
@@ -183,7 +183,7 @@ export async function warmRecallWindow(onProgress?: (done: number, total: number
   return { total: items.length, embedded: missing.length };
 }
 
-function cosine32(a: Float32Array, b: Float32Array): number {
+export function cosine32(a: Float32Array, b: Float32Array): number {
   let dot = 0, na = 0, nb = 0;
   for (let i = 0; i < a.length; i++) {
     dot += a[i]! * b[i]!;

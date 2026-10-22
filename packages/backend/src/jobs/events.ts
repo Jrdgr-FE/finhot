@@ -2,6 +2,7 @@
 import type { PgBoss } from "pg-boss";
 import { groupArticle } from "../events/group.ts";
 import { composeStoryDigest } from "../events/digest.ts";
+import { foldArticle } from "../events/fold.ts";
 import { BudgetExceededError, ReceiptBusyError } from "../providers/receipts.ts";
 import { settleNonEditorial } from "./content.ts";
 import { ensureQueue, enqueue, QUEUES } from "./queue.ts";
@@ -23,6 +24,12 @@ export async function registerEventJobs(boss: PgBoss) {
       if (error instanceof BudgetExceededError || error instanceof ReceiptBusyError) throw error;
       throw error;
     }
+  });
+  await ensureQueue(QUEUES.fold);
+  // Serial too: two reports of one new occurrence must see each other in order.
+  await boss.work<{ articleId: string }>(QUEUES.fold, { localConcurrency: 1, pollingIntervalSeconds: 2 }, async ([job]) => {
+    if (!job) return;
+    return foldArticle(job.data.articleId);
   });
   await ensureQueue(QUEUES.digest);
   await boss.work<{ storyId: number; afterCorrection?: boolean }>(QUEUES.digest, { localConcurrency: 3, pollingIntervalSeconds: 5 }, async ([job]) => {

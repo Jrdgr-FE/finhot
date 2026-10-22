@@ -6,6 +6,7 @@ import { DEFAULT_DOMAIN, DOMAINS, isDomainKey, reportKind, sourceDomains, type D
 import { sql, type Db } from "../db.ts";
 import { listedCondition, selectedCondition } from "./items.ts";
 import { loadReport, reportIndexRows } from "./reports.ts";
+import { feedRepresentatives, type FoldRow } from "../events/fold.ts";
 import type {SyncItem} from './synced.ts';
 type EdgeItem=Omit<SyncItem,'published_at'|'discovered_at'|'ready_at'> & {published_at:Date|null;discovered_at:Date;ready_at:Date|null};
 
@@ -109,6 +110,10 @@ export async function edgeSnapshot(options:{since?:string;reconcileCursor?:strin
     const summaryBudgetReached=feeds.some(f=>f.summaryBudgetReached);
     const items=[...new Map(feeds.flatMap(f=>f.items).map(i=>[i.id,i])).values()]
       .sort((a,b)=>(+(b.published_at??b.discovered_at)-+(a.published_at??a.discovered_at))||(a.id<b.id?1:a.id>b.id?-1:0));
+    // One row per occurrence in the feed (events/fold.ts); the folded reports stay public by address.
+    const folds=await tx<FoldRow[]>`SELECT p.article_id AS id,a.feed_cluster,p.story_id,p.selected,p.score::float AS score,coalesce(p.published_at,p.discovered_at) AS at
+      FROM publications p JOIN articles a ON a.id=p.article_id WHERE p.article_id=ANY(${items.map(i=>i.id)}::text[])`;
+    const shownIds=process.env.FINHOT_FEED_FOLD==='false'?null:feedRepresentatives(folds);
     const changed=await readItems({all:true,limit:10000,changedSince:options.since??new Date(Date.now()-5*60000).toISOString()},tx,10000);
     if(changed.hasMore)throw new Error('Archive reconciliation requires batching; refusing a truncated publication');
     const visible=await tx`SELECT p.article_id AS id FROM publications p JOIN sources s ON s.id=p.source_id
@@ -150,7 +155,7 @@ export async function edgeSnapshot(options:{since?:string;reconcileCursor?:strin
     const coverage={total:items.length,summaries:items.filter(i=>i.summary.trim()).length,bodies:items.filter(i=>i.body_status==='fetched').length,
       awaitingBody:items.filter(i=>i.state==='awaiting-body').length,awaitingSummary:items.filter(i=>!i.summary.trim()&&i.body_status==='fetched').length,
       unavailableBody:items.filter(i=>['failed','too-large','no-text'].includes(i.body_status)).length};
-    return JSON.parse(JSON.stringify({capturedAt,items:[...archived.values()],feedIds:items.map(i=>i.id),visibleIds:[...visibleIds],reconcileCursor,reportCursor,
+    return JSON.parse(JSON.stringify({capturedAt,items:[...archived.values()],feedIds:items.filter(i=>!shownIds||shownIds.has(i.id)).map(i=>i.id),visibleIds:[...visibleIds],reconcileCursor,reportCursor,
       metadata:{...catalog,archiveMode:'persistent',coverage,summaryBudgetReached,budgets,reports:reportDtos}}));
   });
 }

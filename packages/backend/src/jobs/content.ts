@@ -72,6 +72,12 @@ const PRIORITY = { continuation: 10, live: 0, liveSignal: -1, history: -2 } as c
  * (paid) request; the same tag reuses its receipt. With `db`, the job commits with the caller's write.
  * Posts of non-editorial sources skip the analysis queue: they only need recording and grouping.
  */
+/** Feed folding (events/fold.ts) for a public report; FINHOT_FEED_FOLD=false switches it off. */
+async function enqueueFold(articleId: string) {
+  if (process.env.FINHOT_FEED_FOLD === "false") return;
+  await enqueue(QUEUES.fold, { articleId }, { singletonKey: articleId });
+}
+
 export async function queueProcessing(articleId: string, opts: { step?: Step; attemptTag?: string; db?: Db } = {}): Promise<string | null> {
   const db = opts.db ?? sql;
   const r = await route(articleId, db);
@@ -199,6 +205,7 @@ export async function processArticle(articleId: string, opts: { attemptTag?: str
     }
     if (result.stale) return { state: "stale" }; // the newer revision has its own job
     await publishArticle(articleId);
+    if (result.output.relevance === "pass" && !row.historical) await enqueueFold(articleId);
     // History is archived but founds no event (isHistorical).
     if (result.output.relevance === "pass" && !row.historical && screen?.action !== "brief") {
       if(briefOnly)await enqueue(QUEUES.review,{articleId},{singletonKey:articleId});

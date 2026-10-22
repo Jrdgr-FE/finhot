@@ -77,3 +77,14 @@ test('AI housekeeping, customer stories, digests and event PR are screened', () 
   // Version-looking titles outside Simon Willison's tags are launches.
   assert.equal(action('ai-the-decoder', 'Claude 5.5'), 'full');
 });
+
+test('fund self-purchases and product launches make no model call; regulator approvals and bonds keep the full path', () => {
+  assert.deepEqual(prescreen('json-wscn-lives', '“公募一哥”宣布自购 18只主动ETF明日发行'), { action: 'index', rule: 'fund-marketing' });
+  assert.equal(action('ths-news', '华夏基金：公司及高管拟自购不低于5000万元'), 'index');
+  assert.equal(action('21jingji-capital', '百亿基金经理新基金认购首日超50亿'), 'index');
+  assert.equal(action('json-eastmoney-news', '某银行理财新品首发 一日售罄'), 'index');
+  for (const title of ['首批18只主动管理ETF获批 明日起发行', '证监会准予注册首批主动ETF', '财政部：明日发行2026年超长期特别国债'])
+    assert.equal(action('json-wscn-lives', title), 'full', title);
+  // Exchange filings keep their own rules.
+  assert.equal(action('cninfo-company', '某公司 · 600000 · 关于控股股东跟投暨关联交易的公告'), 'full');
+});
