@@ -2304,7 +2304,7 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false,
-      "enabled": true,
+      "enabled": false,
       "free": {
         "group": "global",
         "homepage": "https://www.imf.org/en/News",
@@ -2316,7 +2316,7 @@
       "name": "Calculated Risk",
       "kind": "rss",
       "config": {
-        "feedUrl": "https://www.calculatedriskblog.com/feeds/posts/default",
+        "feedUrl": "https://calculatedrisk.substack.com/feed",
         "sortByPublishedAt": true,
         "_aihot": {
           "initialBackfillLimit": 3
@@ -2335,7 +2335,7 @@
       "enabled": true,
       "free": {
         "group": "macro",
-        "homepage": "https://www.calculatedriskblog.com/",
+        "homepage": "https://calculatedrisk.substack.com/",
         "category": "macro"
       }
     },
@@ -2344,7 +2344,7 @@
       "name": "36氪",
       "kind": "rss",
       "config": {
-        "feedUrl": "https://36kr.com/feed",
+        "feedUrl": "https://www.36kr.com/feed",
         "sortByPublishedAt": true,
         "_aihot": {
           "initialBackfillLimit": 5
@@ -2373,9 +2373,20 @@
     {
       "id": "ai-jiqizhixin",
       "name": "机器之心",
-      "kind": "rss",
+      "kind": "json_list",
       "config": {
-        "feedUrl": "https://www.jiqizhixin.com/rss",
+        "url": "https://www.jiqizhixin.com/api/article_library/articles.json?sort=time&page=1&per=20",
+        "itemsPath": "articles",
+        "titlePaths": [
+          "title"
+        ],
+        "summaryPaths": [
+          "content"
+        ],
+        "publishedAtPath": "publishedAt",
+        "publishedAtUtcOffset": "+08:00",
+        "urlTemplate": "https://www.jiqizhixin.com/articles/{slug}",
+        "externalIdPath": "id",
         "sortByPublishedAt": true,
         "_aihot": {
           "initialBackfillLimit": 5
@@ -2646,9 +2657,19 @@
     {
       "id": "ai-trendforce",
       "name": "TrendForce · 产业新闻",
-      "kind": "rss",
+      "kind": "json_list",
       "config": {
-        "feedUrl": "https://www.trendforce.com/news/feed/",
+        "url": "https://www.trendforce.com/news/wp-json/wp/v2/posts?per_page=20&_fields=id,date_gmt,link,title,excerpt",
+        "titlePaths": [
+          "title.rendered"
+        ],
+        "summaryPaths": [
+          "excerpt.rendered"
+        ],
+        "publishedAtPath": "date_gmt",
+        "publishedAtUtcOffset": "+00:00",
+        "urlTemplate": "{raw:link}",
+        "externalIdPath": "id",
         "sortByPublishedAt": true,
         "_aihot": {
           "initialBackfillLimit": 5
@@ -2672,6 +2693,87 @@
       "free": {
         "group": "ai",
         "homepage": "https://www.trendforce.com/news/"
+      }
+    },
+    {
+      "id": "ai-pedaily",
+      "name": "投资界 · 投资事件",
+      "kind": "web_list",
+      "config": {
+        "url": "https://www.pedaily.cn/vcpeevent/",
+        "itemSelector": "li .txt",
+        "linkSelector": "h3 a",
+        "titleSelector": "h3 a",
+        "publishedAtSelector": ".date",
+        "publishedAtUtcOffset": "+08:00",
+        "allowUrlPrefixes": [
+          "https://news.pedaily.cn/20"
+        ],
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 5
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "isolated",
+      "interval_minutes": 60,
+      "tags": [
+        "媒体",
+        "AI",
+        "一级市场"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "domains": [
+        "ai"
+      ],
+      "free": {
+        "group": "ai",
+        "homepage": "https://www.pedaily.cn/vcpeevent/"
+      }
+    },
+    {
+      "id": "ai-cyzone",
+      "name": "创业邦 · 快鲤鱼融资",
+      "kind": "json_list",
+      "config": {
+        "url": "https://api1.cyzone.cn/v2/content/channel/detail?channel_id=5&page=1&created_at=0",
+        "itemsPath": "data",
+        "titlePaths": [
+          "title"
+        ],
+        "summaryPaths": [
+          "description"
+        ],
+        "publishedAtPath": "published_at",
+        "publishedAtUnit": "epoch_s",
+        "urlTemplate": "https:{raw:url}",
+        "externalIdPath": "content_id",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 5
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "isolated",
+      "interval_minutes": 60,
+      "tags": [
+        "媒体",
+        "AI",
+        "一级市场"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "domains": [
+        "ai"
+      ],
+      "free": {
+        "group": "ai",
+        "homepage": "https://www.cyzone.cn/channel/5"
       }
     }
   ]
