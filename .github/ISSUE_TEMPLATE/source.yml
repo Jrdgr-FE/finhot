@@ -1,0 +1,32 @@
+name: 推荐信源
+description: 推荐一个值得跟踪的金融或 AI 与硬科技信源
+labels: [source]
+body:
+  - type: input
+    id: url
+    attributes:
+      label: 地址
+      description: RSS、栏目列表页或接口地址
+    validations:
+      required: true
+  - type: dropdown
+    id: domain
+    attributes:
+      label: 领域
+      options:
+        - 金融
+        - AI 与硬科技
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: 为什么值得看
+      description: 它发布什么、多久更新一次、是一手来源还是媒体，和现有信源有什么不同。
+    validations:
+      required: true
+  - type: textarea
+    id: terms
+    attributes:
+      label: 转载与抓取条件
+      description: 来源是否允许抓取、是否允许展示全文（默认只展示摘要和原文链接，见 docs/sources.md）。不清楚可以留空。

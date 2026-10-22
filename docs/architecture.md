@@ -2,8 +2,8 @@
 
 ```mermaid
 flowchart LR
-  S["信源<br/>RSS · 网页 · JSON · X · 公众号 · 外部推送"] --> C["采集<br/>判重 · 抓原文"]
-  C --> J["判断与写作<br/>预筛 · 评分 · 标题摘要 · 结构化"]
+  S["信源<br/>RSS · 网页 · JSON · X · 公众号 · 外部推送"] --> C["采集<br/>判重 · 抓原文 · PDF 正文"]
+  C --> J["判断与写作<br/>规则初筛 · 模型预筛 · 评分 · 标题摘要 · 结构化"]
   J --> G["归组<br/>事件 · 热度 · 综述"]
   J --> P["公开读取层<br/>publication/"]
   G --> P
@@ -21,12 +21,28 @@ flowchart LR
 
 业务代码都在 `packages/backend/`，前后端共用的类型和常量在 `packages/contracts/`，行业相关的一切在 `industry/`。
 
+## 一条资料怎么走
+
+1. **采集**：worker 每分钟挑出到期的信源去抓（`sources/collect.ts`），新链接入库并判重，再抓原文；交易所公告、研报这类 PDF 提取前几页的文字（`content/pdf.ts`）。
+2. **规则初筛**（`industry/prescreen.ts`，不花钱）：按时间表发的例行公告、定期研报这类标题只留来源索引，不调模型；有些规则只让资料写普通摘要、不参与精选评分。
+3. **模型预筛**：便宜的模型判断资料是否属于本站领域，只有明确不属于的才停下。
+4. **评分**：按资料主领域的评分标准（`industry/prompts/selection-score*.md`）打分，明显高于或低于门槛（`industry/selection.ts`）时评一次，接近门槛时再独立评一次取平均，决定是否入选精选。
+5. **写作**：入选和接近入选的按内容理解提示词写中文标题、摘要和理由，其余的用更便宜的提示词写标题摘要；同时给出分类、标签、主体公司和事实框架。
+6. **归组**：同一事件的不同报道合并成一个事件，热度按独立来源数计算，再写事件综述。
+7. **日报**：北京时间 08:00 按领域和板块汇总上一个窗口的精选。
+
+每一步调模型前都先记回执、过预算（见下）。领域定义在 `industry/domains.ts`：金融和 AI 与硬科技各有自己的分类、评分标准、门槛和日报，一条资料可以同时出现在两个领域，评分按它的主领域来。
+
+## 公开前台
+
+整站可以用 Docker Compose 跑在一台机器上，web 进程直接对读者。finhot.fun 则把公开页面放在 Cloudflare Workers + D1：服务器每 2 分钟把公开读取层的结果推到 D1，读者访问不回源服务器（`deploy/ecs/`）。另有回源和全托管两种做法，见 [用 Cloudflare 做前台](cloudflare.md)。
+
 ## 几条不变的规则
 
 - **一个公开读取层**：网页、RSS、API、MCP、站点地图、分享图读的都是 `packages/backend/src/publication/`，所以各个出口看到的内容一致。新增公开出口也从这里读。
 - **页面不调模型**：读者打开页面只读数据库里已经有的结果；模型只在 worker 的任务里调用。
 - **花钱的请求有回执**：每个付费请求（模型、X、公众号、Jina）先记一张回执，拿到结果先存再用。进程重启、任务重试时，复用已经付过钱的结果，不重复花钱（`providers/receipts.ts`）。
-- **预算熔断**：每个付费服务有每分钟、每小时、每天的上限，超过就暂停（后台“设置 → 预算”）。
+- **预算熔断**：每个付费服务有每分钟、每小时、每天的次数上限，模型另有滚动 24 小时的金额上限，超过就暂停（后台“设置 → 预算”）。
 - **安全阀**：`COLLECT_ENABLED`、`MODEL_CALLS_ENABLED`、`FEISHU_CONTENT_PUSH_ENABLED`、`FEISHU_INTERNAL_ENABLED`、`INDEXNOW_SUBMIT_ENABLED` 只决定“发不发出去”，不决定走哪套逻辑。开发和测试时关掉。
 - **公开内容匿名**：管理员和访客看到的一样；读者的收藏、已读存在浏览器里。后台只允许管理员。
 - **旧文不刷屏**：发现时已发布超过 48 小时的资料、新信源的存量、回灌的推送，按原文时间归档，不进“今天”、不推送。
@@ -52,6 +68,8 @@ flowchart LR
 | `database/migrations/` | 数据库迁移，按编号顺序执行 |
 | `scripts/` | 初始化、迁移、种子数据、评测、检查脚本 |
 | `tests/` | 后端测试（需要一个名字以 `_test` 或 `_ci` 结尾的空库） |
+| `deploy/ecs/` | 服务器 + Cloudflare 同步前台：同步脚本、Worker、systemd 单元、发布与备份脚本 |
+| `deploy/free/` | 全托管在 Cloudflare 上的简化版，也提供前两种前台共用的静态页面 |
 
 ## 对外出口
 
@@ -68,10 +86,11 @@ flowchart LR
 
 ```bash
 npm run typecheck
-createdb myhot_test
-DATABASE_URL=postgres://127.0.0.1:5432/myhot_test node scripts/migrate.ts
-DATABASE_URL=postgres://127.0.0.1:5432/myhot_test npm test
+createdb finhot_test
+DATABASE_URL=postgres://127.0.0.1:5432/finhot_test node scripts/migrate.ts
+DATABASE_URL=postgres://127.0.0.1:5432/finhot_test npm test
 npm run build -w @aihot/web && node --test apps/web/tests/*.test.ts
+npm run free:check && npm run free:test    # Cloudflare Workers 前台
 ```
 
-测试不访问任何外部服务：模型和付费接口都由本地假服务回答。
+测试不访问任何外部服务：模型和付费接口都由本地假服务回答。每个 PR 和推到 main 的提交都会在 GitHub Actions 里跑同样的检查，外加一次 `docker compose up` 的冒烟测试（`.github/workflows/check.yml`）。

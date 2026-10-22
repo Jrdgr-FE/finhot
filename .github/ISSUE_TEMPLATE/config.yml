@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 部署与定制文档
+    url: https://github.com/Jrdgr-FE/finhot/tree/main/docs
+    about: 部署、Cloudflare 前台、换行业、校准门槛，先看这里。
+  - name: 线上内容更正
+    url: https://finhot.fun/feedback
+    about: finhot.fun 上某条资讯的标题、摘要或来源有误，请用站内反馈。

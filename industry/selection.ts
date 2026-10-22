@@ -16,7 +16,7 @@ export const SELECTION = {
   thresholds: FINANCE,
   /**
    * 按资料的主领域取门槛（industry/domains.ts）。AI 与硬科技暂用 AIHOT 在 AI 领域的原值，
-   * 按 docs/finhot-domains-plan-20261020.md 第 4.3 节的样本集校准后再改。
+   * 用这个领域自己标注的样本集校准后再改（docs/selection.md）。
    */
   byDomain: {
     finance: FINANCE,

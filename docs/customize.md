@@ -1,6 +1,6 @@
 # 把它改成你的行业
 
-这份仓库默认是一个“AI 行业”的示例站：示范信源是一批公开的 AI 资讯源，精选口味是 AIHOT 在 AI 领域调了很久的那一套。要把它变成“法律热点”“HR 热点”“黄金热点”，要改的东西几乎都在 [`industry/`](../industry/) 这一个文件夹里，代码基本不用动。
+这份仓库默认是 FinHot：一个金融资讯站，另带一个可选的“AI 与硬科技”领域。它的框架来自 [AIHOT](https://github.com/KKKKhazix/AIHOT)，本身不绑定行业。要把它变成“法律热点”“HR 热点”“黄金热点”，或者换一套你自己的金融信源和口味，要改的东西几乎都在 [`industry/`](../industry/) 这一个文件夹里，代码基本不用动。
 
 如果你用 Claude Code、Codex 这类 Agent，可以把下面这段直接发给它，然后回答它的问题：
 
@@ -73,7 +73,7 @@
 
 ## 5. 门槛与校准：`industry/selection.ts`
 
-两次评分之和 ≥ 2 × 门槛才入选。默认门槛（T1 60、T1_5 65、T2 76）是 AIHOT 在 AI 领域校准出来的，换了行业和提示词，需要重新校准：
+评分的平均分 ≥ 门槛才入选（离门槛远的评一次，近的评两次取平均）。默认门槛（T1 60、T1_5 65、T2 76）最早是 AIHOT 在 AI 领域校准出来的，FinHot 的金融领域沿用了这组数；换了行业和提示词，需要重新校准。门槛按领域分开写在 `SELECTION.byDomain` 里：
 
 1. 从你的信源里挑 100–200 条资料，自己标“该选 / 不该选”，存成 `.data/gold.jsonl`（格式见 [精选与校准](selection.md)，`industry/gold.example.jsonl` 有两条示例）。
 2. 运行 `node --env-file=.env scripts/eval-selection.ts --gold .data/gold.jsonl`，看准确率、查准率、查全率，和不同门槛下的结果。
