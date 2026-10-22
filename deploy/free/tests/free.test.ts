@@ -7,6 +7,7 @@ import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import type { Env, Source } from "../types.ts";
 import { analyze, parseAnalysis, composeDaily, collect, dueSources, SOURCES } from "../pipeline.ts";
 import { parseSource, reportWindow, boundedText } from "../parsers.ts";
+import pack from "../../../industry/sources.json" with { type: "json" };
 import { freeItems, freeReports, freeRss } from "../../../packages/backend/src/publication/free.ts";
 import worker from "../worker.ts";
 import { hydrate, fetchBody, bodyUrl, BodyUnavailable } from "../body.ts";
@@ -94,7 +95,7 @@ test("publication hides raw excerpts and pending, failed and excluded items", as
 });
 
 test('duplicates are removed before the twenty-item cap and report attribution is retained', () => {
-  const source = SOURCES.find(s=>s.id==='eastmoney-research-0')!;
+  const source = pack.sources.find(s=>s.id==='eastmoney-research-0') as unknown as Source;
   const rows = Array.from({length:25},(_,i)=>({infoCode:String(i),title:'公司业绩研究',stockName:'测试公司',orgName:'测试证券',publishDate:'2026-10-02 00:00:00.000'}));
   const result = parseSource(source, JSON.stringify({data:[rows[0],rows[0],...rows]}));
   assert.equal(result.length,20); assert.equal(new Set(result.map(r=>r.url)).size,20);

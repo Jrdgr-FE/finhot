@@ -215,7 +215,7 @@
         },
         "sortByPublishedAt": true
       },
-      "enabled": true,
+      "enabled": false,
       "syndicate_fulltext": false,
       "free": {
         "group": "global",
@@ -407,7 +407,7 @@
         },
         "sortByPublishedAt": true
       },
-      "enabled": true,
+      "enabled": false,
       "syndicate_fulltext": false,
       "free": {
         "group": "global",
@@ -697,7 +697,7 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false,
-      "enabled": true,
+      "enabled": false,
       "free": {
         "group": "research",
         "homepage": "https://data.eastmoney.com/report/",
@@ -831,7 +831,7 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false,
-      "enabled": true,
+      "enabled": false,
       "free": {
         "group": "market",
         "homepage": "https://finance.sina.com.cn/",
@@ -924,7 +924,7 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false,
-      "enabled": true,
+      "enabled": false,
       "free": {
         "group": "market",
         "homepage": "https://www.bbc.com/business",
@@ -956,7 +956,7 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false,
-      "enabled": true,
+      "enabled": false,
       "free": {
         "group": "company",
         "homepage": "https://www.apple.com/newsroom/",
@@ -988,7 +988,7 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false,
-      "enabled": true,
+      "enabled": false,
       "free": {
         "group": "research",
         "homepage": "https://rpc.cfainstitute.org/blogs/enterprising-investor",
@@ -1046,7 +1046,7 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false,
-      "enabled": true,
+      "enabled": false,
       "free": {
         "group": "research",
         "homepage": "https://www.bis.org/publications",
@@ -1075,7 +1075,7 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false,
-      "enabled": true,
+      "enabled": false,
       "free": {
         "group": "research",
         "homepage": "https://www.federalreserve.gov/econres/notes/feds-notes/default.htm",
@@ -1380,7 +1380,7 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false,
-      "enabled": true,
+      "enabled": false,
       "domains": [
         "ai"
       ],
@@ -1626,7 +1626,7 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false,
-      "enabled": true,
+      "enabled": false,
       "domains": [
         "ai"
       ],
@@ -1686,7 +1686,7 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false,
-      "enabled": true,
+      "enabled": false,
       "domains": [
         "ai"
       ],
@@ -1716,7 +1716,7 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false,
-      "enabled": true,
+      "enabled": false,
       "domains": [
         "ai"
       ],
@@ -1806,7 +1806,7 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false,
-      "enabled": true,
+      "enabled": false,
       "domains": [
         "ai"
       ],
@@ -2113,6 +2113,565 @@
       "free": {
         "group": "ai",
         "homepage": "https://www.leiphone.com/"
+      }
+    },
+    {
+      "id": "bloomberg-markets",
+      "name": "Bloomberg · Markets",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://feeds.bloomberg.com/markets/news.rss",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 5
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "editorial",
+      "interval_minutes": 30,
+      "tags": [
+        "英文",
+        "市场"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "free": {
+        "group": "global",
+        "homepage": "https://www.bloomberg.com/markets",
+        "category": "market"
+      }
+    },
+    {
+      "id": "ft-markets",
+      "name": "Financial Times · Markets",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.ft.com/markets?format=rss",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 5
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "editorial",
+      "interval_minutes": 30,
+      "tags": [
+        "英文",
+        "市场"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "free": {
+        "group": "global",
+        "homepage": "https://www.ft.com/markets",
+        "category": "market"
+      }
+    },
+    {
+      "id": "wsj-markets",
+      "name": "WSJ · Markets",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 5
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "editorial",
+      "interval_minutes": 30,
+      "tags": [
+        "英文",
+        "市场"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "free": {
+        "group": "global",
+        "homepage": "https://www.wsj.com/finance",
+        "category": "market"
+      }
+    },
+    {
+      "id": "bls-latest",
+      "name": "美国劳工统计局 最新发布",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.bls.gov/feed/bls_latest.rss",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
+      },
+      "tier": "T1",
+      "first_party": true,
+      "participation_mode": "editorial",
+      "interval_minutes": 120,
+      "tags": [
+        "官方",
+        "宏观数据"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "free": {
+        "group": "macro",
+        "homepage": "https://www.bls.gov/bls/newsrels.htm",
+        "category": "macro"
+      }
+    },
+    {
+      "id": "bea-news",
+      "name": "美国经济分析局 数据发布",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://apps.bea.gov/rss/rss.xml",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
+      },
+      "tier": "T1",
+      "first_party": true,
+      "participation_mode": "editorial",
+      "interval_minutes": 120,
+      "tags": [
+        "官方",
+        "宏观数据"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "free": {
+        "group": "macro",
+        "homepage": "https://www.bea.gov/news/current-releases",
+        "category": "macro"
+      }
+    },
+    {
+      "id": "sec-press",
+      "name": "美国证交会 新闻稿",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.sec.gov/news/pressreleases.rss",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
+      },
+      "tier": "T1",
+      "first_party": true,
+      "participation_mode": "editorial",
+      "interval_minutes": 120,
+      "tags": [
+        "官方",
+        "监管"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "free": {
+        "group": "global",
+        "homepage": "https://www.sec.gov/newsroom/press-releases",
+        "category": "policy"
+      }
+    },
+    {
+      "id": "imf-news",
+      "name": "国际货币基金组织 新闻",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.imf.org/en/News/rss?language=eng",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
+      },
+      "tier": "T1",
+      "first_party": true,
+      "participation_mode": "editorial",
+      "interval_minutes": 240,
+      "tags": [
+        "官方",
+        "国际组织"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "free": {
+        "group": "global",
+        "homepage": "https://www.imf.org/en/News",
+        "category": "macro"
+      }
+    },
+    {
+      "id": "calculated-risk",
+      "name": "Calculated Risk",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.calculatedriskblog.com/feeds/posts/default",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "editorial",
+      "interval_minutes": 60,
+      "tags": [
+        "英文",
+        "宏观数据"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "free": {
+        "group": "macro",
+        "homepage": "https://www.calculatedriskblog.com/",
+        "category": "macro"
+      }
+    },
+    {
+      "id": "ai-36kr",
+      "name": "36氪",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://36kr.com/feed",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 5
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "isolated",
+      "interval_minutes": 30,
+      "tags": [
+        "媒体",
+        "AI",
+        "一级市场"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "domains": [
+        "ai"
+      ],
+      "free": {
+        "group": "ai",
+        "homepage": "https://36kr.com/"
+      }
+    },
+    {
+      "id": "ai-jiqizhixin",
+      "name": "机器之心",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.jiqizhixin.com/rss",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 5
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "isolated",
+      "interval_minutes": 60,
+      "tags": [
+        "媒体",
+        "AI"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "domains": [
+        "ai"
+      ],
+      "free": {
+        "group": "ai",
+        "homepage": "https://www.jiqizhixin.com/"
+      }
+    },
+    {
+      "id": "ai-crunchbase-news",
+      "name": "Crunchbase News",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://news.crunchbase.com/feed/",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 5
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "isolated",
+      "interval_minutes": 60,
+      "tags": [
+        "媒体",
+        "AI",
+        "一级市场"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "domains": [
+        "ai"
+      ],
+      "free": {
+        "group": "ai",
+        "homepage": "https://news.crunchbase.com/"
+      }
+    },
+    {
+      "id": "ai-techcrunch-venture",
+      "name": "TechCrunch · Venture",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://techcrunch.com/category/venture/feed/",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 5
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "isolated",
+      "interval_minutes": 60,
+      "tags": [
+        "媒体",
+        "AI",
+        "一级市场"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "domains": [
+        "ai"
+      ],
+      "free": {
+        "group": "ai",
+        "homepage": "https://techcrunch.com/category/venture/"
+      }
+    },
+    {
+      "id": "ai-techcrunch-robotics",
+      "name": "TechCrunch · Robotics",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://techcrunch.com/category/robotics/feed/",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 5
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "isolated",
+      "interval_minutes": 120,
+      "tags": [
+        "媒体",
+        "AI",
+        "机器人"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "domains": [
+        "ai"
+      ],
+      "free": {
+        "group": "ai",
+        "homepage": "https://techcrunch.com/category/robotics/"
+      }
+    },
+    {
+      "id": "ai-bloomberg-tech",
+      "name": "Bloomberg · Technology",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://feeds.bloomberg.com/technology/news.rss",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 5
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "isolated",
+      "interval_minutes": 60,
+      "tags": [
+        "媒体",
+        "AI"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "domains": [
+        "ai"
+      ],
+      "free": {
+        "group": "ai",
+        "homepage": "https://www.bloomberg.com/technology"
+      }
+    },
+    {
+      "id": "ai-the-information",
+      "name": "The Information",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.theinformation.com/feed",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 5
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "isolated",
+      "interval_minutes": 60,
+      "tags": [
+        "媒体",
+        "AI"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "domains": [
+        "ai"
+      ],
+      "free": {
+        "group": "ai",
+        "homepage": "https://www.theinformation.com/"
+      }
+    },
+    {
+      "id": "ai-stratechery",
+      "name": "Stratechery",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://stratechery.com/feed/",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "isolated",
+      "interval_minutes": 180,
+      "tags": [
+        "媒体",
+        "AI"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "domains": [
+        "ai"
+      ],
+      "free": {
+        "group": "ai",
+        "homepage": "https://stratechery.com/"
+      }
+    },
+    {
+      "id": "ai-interconnects",
+      "name": "Interconnects",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.interconnects.ai/feed",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "isolated",
+      "interval_minutes": 180,
+      "tags": [
+        "媒体",
+        "AI"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "domains": [
+        "ai"
+      ],
+      "free": {
+        "group": "ai",
+        "homepage": "https://www.interconnects.ai/"
+      }
+    },
+    {
+      "id": "ai-import-ai",
+      "name": "Import AI",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://importai.substack.com/feed",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "isolated",
+      "interval_minutes": 180,
+      "tags": [
+        "媒体",
+        "AI"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "domains": [
+        "ai"
+      ],
+      "free": {
+        "group": "ai",
+        "homepage": "https://importai.substack.com/"
+      }
+    },
+    {
+      "id": "ai-trendforce",
+      "name": "TrendForce · 产业新闻",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.trendforce.com/news/feed/",
+        "sortByPublishedAt": true,
+        "_aihot": {
+          "initialBackfillLimit": 5
+        }
+      },
+      "tier": "T2",
+      "first_party": false,
+      "participation_mode": "isolated",
+      "interval_minutes": 120,
+      "tags": [
+        "媒体",
+        "AI",
+        "半导体"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false,
+      "enabled": true,
+      "domains": [
+        "ai"
+      ],
+      "free": {
+        "group": "ai",
+        "homepage": "https://www.trendforce.com/news/"
       }
     }
   ]
