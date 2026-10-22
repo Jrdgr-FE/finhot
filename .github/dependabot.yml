@@ -1,0 +1,11 @@
+# Keeps the pinned GitHub Actions current. npm dependencies are updated by hand: lockfile changes
+# need the full check (typecheck, tests, Docker) and a look at what the package does.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

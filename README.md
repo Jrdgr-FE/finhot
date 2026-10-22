@@ -61,6 +61,8 @@ docker compose up -d --build
 2. 密钥只用 `npx wrangler secret put <名字>` 设置（如 `SYNC_TOKEN`、`ADMIN_PASSWORD`），不要写进配置文件。
 3. 服务器上的同步进程用 `FINHOT_SYNC_URL` 和 `FINHOT_SYNC_TOKEN`（与 Worker 的 `SYNC_TOKEN` 相同，至少 32 位）推送公开结果。systemd 单元在 `deploy/ecs/*.service`，从 `/etc/finhot/<角色>.env` 读配置。
 
+完整步骤见 [用 Cloudflare 做前台](docs/cloudflare.md)。
+
 ## 定制
 
 信源、分类、精选标准和文案几乎都在 [`industry/`](industry/) 里，改它们基本不用动代码：
@@ -73,7 +75,11 @@ docker compose up -d --build
 | `selection.ts`、`prescreen.ts` | 入选门槛与预筛规则 |
 | `site.ts`、`brand/`、`pages/` | 站名、文案、图标、使用规则与隐私说明 |
 
-更多说明：[定制](docs/customize.md) · [信源](docs/sources.md) · [精选与校准](docs/selection.md) · [部署](docs/deploy.md) · [架构](docs/architecture.md)
+更多说明：[定制](docs/customize.md) · [信源](docs/sources.md) · [精选与校准](docs/selection.md) · [部署](docs/deploy.md) · [用 Cloudflare 做前台](docs/cloudflare.md) · [架构](docs/architecture.md)
+
+## 参与
+
+欢迎提 issue 和 PR，先读 [CONTRIBUTING.md](CONTRIBUTING.md)。推荐信源请用 issue 里的“推荐信源”模板。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
 
 ## 致谢
 
