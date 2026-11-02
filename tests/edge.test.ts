@@ -75,3 +75,20 @@ test('feedback is private, limited atomically and only edge feedback expires aft
   assert.equal(await purgeExpiredEdgeFeedback(),1);
   assert.equal((await sql`SELECT id FROM feedback WHERE content=${payload.message}`).length,4);
 });
+
+test('a written daily review exports its cited items first, selected or not, and drops what is no longer public',async()=>{
+  const ids:string[]=[];
+  for(const [label,picked] of [['cited',false],['listed',true]] as const){
+    const material=await upsertMaterial({sourceId:SOURCE,url:`https://example.org/edge-review-${label}-${T}`,title:`Review ${label} ${T}`,bodyText:'BODY',bodyStatus:'ok',via:'import',publishedAt:new Date()});
+    await publishArticle(material.articleId);
+    await sql`UPDATE publications SET visibility='public',visible_after=now()-interval '1 minute',summary=${`摘要 ${label}`},selected=${picked} WHERE article_id=${material.articleId}`;
+    ids.push(material.articleId);
+  }
+  const [cited,listed]=ids as [string,string];
+  const content={review:{headline:'标题',overview:'总述',themes:[{heading:'主题',summary:'主题摘要',refs:[{itemId:cited},{itemId:'not-public'}]}]},sections:[{label:'公司',items:[{itemId:listed}]}],flashes:[]};
+  const snapshot=await edgeSnapshot({drafts:[{key:'2099-01-02',generated_at:new Date(),content,domain:'finance'}]});
+  const dto=snapshot.metadata.reports.find((r:any)=>r.date==='2099-01-02');
+  assert.equal(dto.mode,'review');assert.deepEqual(dto.ids,[cited,listed]);
+  assert.deepEqual(dto.review,{headline:'标题',overview:'总述',themes:[{heading:'主题',summary:'主题摘要',ids:[cited]}]});
+  for(const id of ids)assert.ok(snapshot.items.some((i:any)=>i.id===id));
+});

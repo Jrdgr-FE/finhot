@@ -115,6 +115,22 @@ test('articles found before FINHOT_PROCESS_SINCE stay a source index without any
   }finally{delete process.env.FINHOT_BRIEF_FIRST;delete process.env.FINHOT_PROCESS_SINCE;}
 });
 
+test('an AI advert makes no call and is listed nowhere; an editor can still show it',async()=>{
+  const T=tag(),ai=`ai-advert-${T}`;
+  await sql`INSERT INTO sources(id,name,kind,tier,participation_mode)VALUES(${ai},'AI 测试源','rss','T2','editorial')`;
+  const advert=await upsertMaterial({sourceId:ai,url:`https://example.org/${ai}/sponsored`,title:`Sponsored: Why AI data centers should be measured in value ${T}`,bodyText:'Sponsored body. '.repeat(10),bodyStatus:'ok',via:'fetch',publishedAt:new Date()});
+  const start=calls.length;
+  assert.equal((await processArticle(advert.articleId)).state,'hidden');
+  assert.deepEqual(calls.slice(start),[],'the advert made no call');
+  await publishArticle(advert.articleId);
+  const [row]=await sql`SELECT a.processing_error,p.visibility FROM articles a JOIN publications p ON p.article_id=a.id WHERE a.id=${advert.articleId}`;
+  assert.deepEqual([row!.processing_error,row!.visibility],['不公开；规则初筛 ai-advert','withdrawn']);
+  await sql`INSERT INTO editorial_overrides(article_id,visibility,reason,updated_by)VALUES(${advert.articleId},'public','测试','test')`;
+  await publishArticle(advert.articleId);
+  const [shown]=await sql`SELECT visibility FROM publications WHERE article_id=${advert.articleId}`;
+  assert.equal(shown!.visibility,'public');
+});
+
 for(const share of [0.7,0.5])test(`summary/review share ${share} respects both lanes and the unchanged global cap`,async()=>{
   const [saved]=await sql`SELECT * FROM budgets WHERE service='llm'`;
   const older=await sql`UPDATE receipt_attempts SET started_at=started_at-interval '3 days' WHERE service='llm' AND started_at>now()-interval '1 day' RETURNING id`;

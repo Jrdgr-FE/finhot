@@ -2,13 +2,15 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import { escapeXml } from './free.ts';
 export interface SyncDomain {key:string;label:string;labelEn:string;categories:string[]}
+/** A daily edition's written review: headline, overview and themes, each citing items of the edition. */
+export interface SyncReview {headline:string;overview:string;themes:Array<{heading:string;summary:string;ids:string[]}>}
 export interface SyncMetadata {
   sources: Array<{id:string;name:string;group:string;homepage:string;tier:string;intervalMinutes:number;domains?:string[];[key:string]:unknown}>;
   categories: Record<string,string>; groups:Record<string,string>;
   /** The domain catalog (absent before domains: everything is finance). */
   domains?:SyncDomain[];
-  /** Daily reports; `domain` absent means finance. */
-  reports:Array<{date:string;domain?:string;created_at:string;ids:string[];mode?:'selected'|'source-index';windowStart?:string;windowEnd?:string}>;
+  /** Daily reports; `domain` absent means finance. A `review` edition lists its cited items first, then the selected. */
+  reports:Array<{date:string;domain?:string;created_at:string;ids:string[];mode?:'selected'|'source-index'|'review';windowStart?:string;windowEnd?:string;review?:SyncReview}>;
   archiveMode?:'persistent';
   summaryBudgetReached:boolean; budgets:unknown[];
   coverage?:{total:number;summaries:number;bodies:number;awaitingBody:number;awaitingSummary:number;unavailableBody:number};
@@ -57,9 +59,10 @@ export async function syncedItems(db:D1Database,options:{all?:boolean;category?:
 }
 export async function syncedReport(db:D1Database,report:SyncMetadata['reports'][number]) {
   // Joining the current published replica means a withdrawn citation vanishes from old reports too.
-  const rows=await db.prepare(`SELECT data_json FROM server_sync_items WHERE ${report.mode==='source-index'?'1=1':'selected=1'} AND id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(report.ids)).all<{data_json:string}>();
+  const rows=await db.prepare(`SELECT data_json FROM server_sync_items WHERE ${(report.mode??'selected')==='selected'?'selected=1':'1=1'} AND id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(report.ids)).all<{data_json:string}>();
   const byId=new Map(rows.results.map(r=>{const item=JSON.parse(r.data_json) as SyncItem;return[item.id,item];}));
-  return{date:report.date,domain:domainOfReport(report),created_at:report.created_at,mode:report.mode??'selected',windowStart:report.windowStart,windowEnd:report.windowEnd,items:report.ids.flatMap(id=>byId.has(id)?[byId.get(id)!]:[])};
+  const review=report.review?{...report.review,themes:report.review.themes.map(t=>({...t,ids:t.ids.filter(id=>byId.has(id))}))}:undefined;
+  return{date:report.date,domain:domainOfReport(report),created_at:report.created_at,mode:report.mode??'selected',windowStart:report.windowStart,windowEnd:report.windowEnd,...(review?{review}:{}),items:report.ids.flatMap(id=>byId.has(id)?[byId.get(id)!]:[])};
 }
 export async function syncedReportByDate(db:D1Database,date:string,domain=DEFAULT_SYNC_DOMAIN){
   const row=await db.prepare('SELECT data_json FROM server_sync_reports WHERE domain=? AND date=?').bind(domain,date).first<{data_json:string}>();
@@ -77,9 +80,17 @@ export async function syncedSitemap(db:D1Database,state:NonNullable<Awaited<Retu
     ...(await db.prepare('SELECT domain,date,created_at FROM server_sync_reports ORDER BY date DESC,domain LIMIT 5000').all<{domain:string;date:string;created_at:string}>()).results.map(r=>({path:'/daily/'+r.date+(r.domain===DEFAULT_SYNC_DOMAIN?'':'?domain='+encodeURIComponent(r.domain)),at:r.created_at}))];
   return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map(u=>`<url><loc>${escapeXml(new URL(u.path,site).href)}</loc>${u.at?`<lastmod>${escapeXml(u.at)}</lastmod>`:''}</url>`).join('')}</urlset>`;
 }
-/** The selected feed: /feed.xml stays finance (existing subscribers), /feed/<domain>.xml for the others. */
+/** The selected feed: /feed.xml stays finance (existing subscribers), /feed/<domain>.xml for the others. The last
+ * week's written daily briefs come first, each with its whole review. */
 export async function syncedRss(db:D1Database,site:string,domain:{key:string;label:string}={key:DEFAULT_SYNC_DOMAIN,label:'金融'}) {
   const {items}=await syncedItems(db,{limit:30,domain:domain.key});
   const label=domain.label,link=domain.key===DEFAULT_SYNC_DOMAIN?site:new URL('/?domain='+encodeURIComponent(domain.key),site).href;
-  return `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>FinHot · ${escapeXml(label)}精选</title><link>${escapeXml(link)}</link><description>${escapeXml(label)}资讯中文摘要与原文索引</description><language>zh-cn</language>${items.map(i=>`<item><title>${escapeXml(i.title)}</title><link>${escapeXml(i.url)}</link><guid isPermaLink="false">${escapeXml(i.id)}</guid><description>${escapeXml(i.summary)}</description><pubDate>${new Date(i.published_at??i.discovered_at).toUTCString()}</pubDate><source>${escapeXml(i.source_name)}</source></item>`).join('')}</channel></rss>`;
+  const briefs=(await db.prepare('SELECT data_json FROM server_sync_reports WHERE domain=? ORDER BY date DESC LIMIT 7').bind(domain.key).all<{data_json:string}>()).results
+    .map(r=>JSON.parse(r.data_json) as SyncMetadata['reports'][number]).filter(r=>r.review);
+  const brief=(r:SyncMetadata['reports'][number])=>{
+    const url=new URL('/daily/'+r.date+(domain.key===DEFAULT_SYNC_DOMAIN?'':'?domain='+encodeURIComponent(domain.key)),site).href,v=r.review!;
+    const html=`<p>${escapeXml(v.overview)}</p>${v.themes.map(t=>`<h3>${escapeXml(t.heading)}</h3><p>${escapeXml(t.summary)}</p>`).join('')}`;
+    return `<item><title>${escapeXml(`每日${label}简报 ${r.date}${v.headline?'：'+v.headline:''}`)}</title><link>${escapeXml(url)}</link><guid isPermaLink="false">${escapeXml(`brief:${domain.key}:${r.date}`)}</guid><description>${escapeXml(html)}</description><pubDate>${new Date(r.created_at).toUTCString()}</pubDate></item>`;
+  };
+  return `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>FinHot · ${escapeXml(label)}精选</title><link>${escapeXml(link)}</link><description>${escapeXml(label)}资讯中文摘要与原文索引</description><language>zh-cn</language>${briefs.map(brief).join('')}${items.map(i=>`<item><title>${escapeXml(i.title)}</title><link>${escapeXml(i.url)}</link><guid isPermaLink="false">${escapeXml(i.id)}</guid><description>${escapeXml(i.summary)}</description><pubDate>${new Date(i.published_at??i.discovered_at).toUTCString()}</pubDate><source>${escapeXml(i.source_name)}</source></item>`).join('')}</channel></rss>`;
 }

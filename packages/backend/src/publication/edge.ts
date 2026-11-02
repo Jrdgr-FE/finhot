@@ -6,6 +6,7 @@ import { DEFAULT_DOMAIN, DOMAINS, isDomainKey, reportKind, sourceDomains, type D
 import { sql, type Db } from "../db.ts";
 import { listedCondition, selectedCondition } from "./items.ts";
 import { loadReport, reportIndexRows } from "./reports.ts";
+import { feedRepresentatives, type FoldRow } from "../events/fold.ts";
 import type {SyncItem} from './synced.ts';
 type EdgeItem=Omit<SyncItem,'published_at'|'discovered_at'|'ready_at'> & {published_at:Date|null;discovered_at:Date;ready_at:Date|null};
 
@@ -99,7 +100,9 @@ export function sourceIndex(items:any[],limit=20):any[]{
   const result:any[]=[];while(result.length<limit){let added=false;for(const list of groups.values()){if(list.length&&result.length<limit){result.push(list.shift());added=true;}}if(!added)break;}
   return result;
 }
-export async function edgeSnapshot(options:{since?:string;reconcileCursor?:string;reportCursor?:string}={}) {
+/** A daily edition not saved yet (a preview of a change shows it in place of the saved one). */
+export interface DraftReport {key:string;generated_at:Date;content:any;domain:DomainKey}
+export async function edgeSnapshot(options:{since?:string;reconcileCursor?:string;reportCursor?:string;drafts?:DraftReport[]}={}) {
   return sql.begin(async tx=>{
     await tx`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY`;
     const capturedAt=new Date().toISOString();
@@ -109,6 +112,10 @@ export async function edgeSnapshot(options:{since?:string;reconcileCursor?:strin
     const summaryBudgetReached=feeds.some(f=>f.summaryBudgetReached);
     const items=[...new Map(feeds.flatMap(f=>f.items).map(i=>[i.id,i])).values()]
       .sort((a,b)=>(+(b.published_at??b.discovered_at)-+(a.published_at??a.discovered_at))||(a.id<b.id?1:a.id>b.id?-1:0));
+    // One row per occurrence in the feed (events/fold.ts); the folded reports stay public by address.
+    const folds=await tx<FoldRow[]>`SELECT p.article_id AS id,a.feed_cluster,p.story_id,p.selected,p.score::float AS score,coalesce(p.published_at,p.discovered_at) AS at
+      FROM publications p JOIN articles a ON a.id=p.article_id WHERE p.article_id=ANY(${items.map(i=>i.id)}::text[])`;
+    const shownIds=process.env.FINHOT_FEED_FOLD==='false'?null:feedRepresentatives(folds);
     const changed=await readItems({all:true,limit:10000,changedSince:options.since??new Date(Date.now()-5*60000).toISOString()},tx,10000);
     if(changed.hasMore)throw new Error('Archive reconciliation requires batching; refusing a truncated publication');
     const visible=await tx`SELECT p.article_id AS id FROM publications p JOIN sources s ON s.id=p.source_id
@@ -132,16 +139,27 @@ export async function edgeSnapshot(options:{since?:string;reconcileCursor?:strin
         AND (key IN(SELECT key FROM reports WHERE kind=${kind} ORDER BY key DESC LIMIT 30) OR key=ANY(${walked}::text[]) OR generated_at>=${options.since??capturedAt}::timestamptz) ORDER BY key DESC`;
       reports.push(...rows.map(r=>({...r,domain:d.key})));
     }
+    for(const draft of options.drafts??[]){const at=reports.findIndex(r=>r.domain===draft.domain&&r.key===draft.key);if(at>=0)reports.splice(at,1);reports.unshift(draft);}
     const reportDtos=[];
     for(const r of reports){
-      const ids=[...new Set<string>([...(r.content.sections??[]).flatMap((s:any)=>s.items??[]),...(r.content.flashes??[])].map((i:any)=>i.itemId).filter((id:string)=>visibleIds.has(id)))].slice(0,500);
+      // A written review cites its items first; the selected list follows. Items no longer public drop out.
+      const themes:any[]=r.content.review?.themes??[];
+      const cited=themes.flatMap((t:any)=>(t.refs??[]).map((e:any)=>e.itemId));
+      const ids=[...new Set<string>([...cited,...[...(r.content.sections??[]).flatMap((s:any)=>s.items??[]),...(r.content.flashes??[])].map((i:any)=>i.itemId)].filter((id:string)=>visibleIds.has(id)))].slice(0,500);
       for(let i=0;i<ids.length;i+=500){const extra=await readItems({ids:ids.slice(i,i+500),all:true},tx,500);for(const item of extra.items)archived.set(item.id,item);}
-      const selectedIds=ids.filter(id=>archived.get(id)?.selected);
+      const shown=ids.filter(id=>archived.has(id)),selectedIds=shown.filter(id=>archived.get(id)?.selected);
       const end=new Date(r.key+'T08:00:00+08:00'),start=new Date(end.getTime()-86400000);
+      const window={windowStart:start.toISOString(),windowEnd:end.toISOString()};
+      if(r.content.review&&themes.length){
+        const review={headline:String(r.content.review.headline??'').slice(0,60),overview:String(r.content.review.overview??'').slice(0,1500),
+          themes:themes.slice(0,6).map((t:any)=>({heading:String(t.heading).slice(0,60),summary:String(t.summary).slice(0,800),ids:[...new Set<string>((t.refs??[]).map((e:any)=>e.itemId))].filter(id=>shown.includes(id)).slice(0,8)}))};
+        reportDtos.push({date:r.key,domain:r.domain,created_at:r.generated_at.toISOString(),ids:shown,mode:'review',review,...window});
+        continue;
+      }
       let fallback:any[]=[];
       if(!selectedIds.length){const candidates=await readItems({all:true,limit:200,from:start,until:end,domain:r.domain},tx,200);fallback=sourceIndex(candidates.items);for(const item of fallback)archived.set(item.id,item);}
       reportDtos.push({date:r.key,domain:r.domain,created_at:r.generated_at.toISOString(),ids:selectedIds.length?selectedIds:fallback.map(i=>i.id),
-        mode:selectedIds.length?'selected':'source-index',windowStart:start.toISOString(),windowEnd:end.toISOString()});
+        mode:selectedIds.length?'selected':'source-index',...window});
     }
     const budgets=await tx`SELECT b.service,b.per_minute,b.per_hour,b.per_day,b.daily_cost_limit,b.cost_currency,
       (SELECT count(*)::int FROM receipt_attempts a WHERE a.service=b.service AND a.origin='live' AND a.started_at>now()-interval '1 day') AS used,
@@ -150,7 +168,7 @@ export async function edgeSnapshot(options:{since?:string;reconcileCursor?:strin
     const coverage={total:items.length,summaries:items.filter(i=>i.summary.trim()).length,bodies:items.filter(i=>i.body_status==='fetched').length,
       awaitingBody:items.filter(i=>i.state==='awaiting-body').length,awaitingSummary:items.filter(i=>!i.summary.trim()&&i.body_status==='fetched').length,
       unavailableBody:items.filter(i=>['failed','too-large','no-text'].includes(i.body_status)).length};
-    return JSON.parse(JSON.stringify({capturedAt,items:[...archived.values()],feedIds:items.map(i=>i.id),visibleIds:[...visibleIds],reconcileCursor,reportCursor,
+    return JSON.parse(JSON.stringify({capturedAt,items:[...archived.values()],feedIds:items.filter(i=>!shownIds||shownIds.has(i.id)).map(i=>i.id),visibleIds:[...visibleIds],reconcileCursor,reportCursor,
       metadata:{...catalog,archiveMode:'persistent',coverage,summaryBudgetReached,budgets,reports:reportDtos}}));
   });
 }

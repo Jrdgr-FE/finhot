@@ -130,7 +130,9 @@ async function checkBudget(tx: Db, req: ReceiptRequest): Promise<void> {
       throw new BudgetExceededError(service, "daily cost", spent!.unpriced>0||budget.daily_cost_limit===0?3600:
         await moneyRetryAfter(tx,service,spent!.amount+reserve.amount-budget.daily_cost_limit));
     }
-    if(service==='llm'&&process.env.FINHOT_BRIEF_FIRST==='true') {
+    // Reports (one call a day or week) take only the overall cap, so a full review lane cannot leave the
+    // day's brief unwritten.
+    if(service==='llm'&&process.env.FINHOT_BRIEF_FIRST==='true'&&!req.purpose.startsWith('report_')) {
       // Keep the overall cap; deployments can reserve more of it for selection.
       const configured=Number(process.env.FINHOT_BRIEF_BUDGET_SHARE??'0.7');
       const briefShare=Number.isFinite(configured)&&configured>=0.1&&configured<=0.9?configured:0.7;
@@ -200,6 +202,13 @@ export async function paidRequest(req: ReceiptRequest, call: () => Promise<CallO
     await sql.begin(async (tx) => {
       await tx`UPDATE receipts SET status = ${status}, error = ${message}, updated_at = now() WHERE id = ${receiptId}`;
       await tx`UPDATE receipt_attempts SET status = ${status}, error = ${message}, latency_ms = ${Date.now() - started}, finished_at = now() WHERE id = ${attemptId}`;
+      // Authentication/authorization refusals never reached inference. Retain
+      // their attempt and original reservation, but settle the billable cost to
+      // zero. Unknown outcomes and failed parsing of paid replies stay reserved.
+      if(error instanceof ProviderRejectedError&&[401,403].includes(error.status??0)&&req.reservedCost){
+        await tx`UPDATE receipt_attempts SET cost=0,currency=${req.reservedCost.currency},cost_basis='actual' WHERE id=${attemptId}`;
+        await tx`UPDATE receipts SET cost=0,currency=${req.reservedCost.currency},cost_basis='actual' WHERE id=${receiptId}`;
+      }
     });
     throw error;
   }

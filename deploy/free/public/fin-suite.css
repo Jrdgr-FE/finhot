@@ -1,0 +1,71 @@
+/* Fin product family · v1. Canonical copy: FinMap/public/fin-suite.css.
+   Mirror this file and fin-suite.js to FinHot with scripts/sync-suite.mjs. */
+:root {
+  --suite-bg: #f5f7fa;
+  --suite-surface: #fff;
+  --suite-surface-2: #f7f9fc;
+  --suite-surface-3: #edf1f7;
+  --suite-text: #182338;
+  --suite-text-2: #43516a;
+  --suite-muted: #68758b;
+  --suite-faint: #748199;
+  --suite-border: #e4e8ef;
+  --suite-border-strong: #d3dae6;
+  --suite-accent: #2962ff;
+  --suite-link: #2457dc;
+  --suite-accent-soft: #eef3ff;
+  --suite-accent-hover: #184bda;
+  --suite-solid: #2962ff;
+  --suite-nav: #101b30;
+  --suite-radius: 5px;
+  --suite-radius-lg: 6px;
+  --suite-header: 48px;
+  --suite-rail: 76px;
+  --suite-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --suite-focus: 0 0 0 3px rgb(41 98 255 / .22);
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --suite-bg: #10141d;
+  --suite-surface: #171d29;
+  --suite-surface-2: #1b2331;
+  --suite-surface-3: #263043;
+  --suite-text: #e3e9f4;
+  --suite-text-2: #b9c5d8;
+  --suite-muted: #97a6bc;
+  --suite-faint: #8494ae;
+  --suite-border: #2b3444;
+  --suite-border-strong: #3b4860;
+  --suite-accent: #8aa9ff;
+  --suite-link: #a2baff;
+  --suite-accent-soft: #243252;
+  --suite-accent-hover: #acc1ff;
+  --suite-nav: #0b1220;
+  color-scheme: dark;
+}
+.suite-switch { position: relative; flex-shrink: 0; font-family: var(--suite-font); }
+.suite-switch > summary { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px; margin: 0 -6px; list-style: none; cursor: pointer; color: #f5f8ff; border-radius: 4px; }
+.suite-switch > summary::-webkit-details-marker { display: none; }
+.suite-switch > summary:hover, .suite-switch[open] > summary { background: #243047; }
+.suite-switch > summary:focus-visible { outline: 2px solid #8aa9ff; outline-offset: 2px; }
+.suite-switch > summary img { display: block; width: 25px; height: 25px; border-radius: 5px; }
+.suite-switch > summary strong { color: #f5f8ff; font-size: 20px; font-weight: 650; letter-spacing: -.6px; line-height: 1; }
+.suite-switch > summary svg { width: 14px; height: 14px; margin-left: 1px; color: #9daec9; }
+.suite-switch .suite-products { position: absolute; top: calc(100% + 7px); left: -6px; z-index: 150; width: 266px; padding: 6px; background: var(--suite-surface); color: var(--suite-text); border: 1px solid var(--suite-border-strong); border-radius: 6px; box-shadow: 0 12px 28px rgb(0 0 0 / .18); }
+.suite-products .suite-product-link { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 4px; text-decoration: none; color: var(--suite-text); line-height: 1.5; }
+.suite-products .suite-product-link:hover { color: var(--suite-text); background: var(--suite-surface-2); }
+.suite-products .suite-product-link[aria-current="true"] { background: var(--suite-accent-soft); }
+.suite-products .suite-product-link strong { display: block; font-size: 14px; color: var(--suite-text); font-weight: 650; letter-spacing: 0; }
+.suite-products .suite-product-link small { display: block; font-size: 12px; color: var(--suite-muted); }
+.suite-product-link > svg { width: 19px; height: 19px; flex-shrink: 0; color: var(--suite-link); }
+.suite-product-link > span:last-child { margin-left: auto; color: var(--suite-link); font-size: 14px; }
+.suite-theme-button { display: inline-flex; justify-content: center; align-items: center; width: 30px; height: 30px; flex-shrink: 0; padding: 0; color: #b8c6de; border: 0; background: transparent; border-radius: 4px; cursor: pointer; }
+.suite-theme-button:hover { color: #fff; background: #2c3a52; }
+.suite-theme-button svg { width: 18px; height: 18px; }
+.suite-theme-button .suite-moon { display: none; }
+[data-theme="dark"] .suite-theme-button .suite-moon { display: block; }
+[data-theme="dark"] .suite-theme-button .suite-sun { display: none; }
+@media (max-width: 600px) {
+  .suite-switch > summary strong { font-size: 18px; }
+  .suite-switch .suite-products { width: min(266px, calc(100vw - 66px)); }
+}

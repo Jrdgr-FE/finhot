@@ -1,4 +1,5 @@
 // Rule pre-screen before any paid call: which model steps an item of an editorial source gets.
+//   hide:  no model call, and the item is listed nowhere (adverts and promotions; publish.ts withdraws it).
 //   index: no model call; the title stays as a source index (like items past the summary window).
 //   brief: the ordinary summary only; no selection scoring, so it cannot be selected.
 //   full:  summary, then the selection scores (unchanged).
@@ -7,7 +8,7 @@
 // The AI rules (ai-*) were drawn from the first 816 titles collected while those sources were
 // isolated, with no analyses to replay: they only take housekeeping, marketing and templates.
 
-export type PrescreenAction = 'index' | 'brief' | 'full';
+export type PrescreenAction = 'hide' | 'index' | 'brief' | 'full';
 export interface PrescreenResult { action: PrescreenAction; rule: string | null }
 interface Rule { id: string; action: Exclude<PrescreenAction, 'full'>; sources: (id: string) => boolean; title: RegExp; unless?: RegExp }
 
@@ -15,6 +16,11 @@ const among = (...ids: string[]) => (id: string) => ids.includes(id);
 const research = (id: string) => /^eastmoney-research-\d+$/.test(id);
 /** Chinese market news feeds whose recaps and flash templates were never selected. */
 const marketNews = among('sina-market', '21jingji-capital', '21jingji-company', 'json-eastmoney-news', 'json-wscn-articles');
+
+/** Finance news and research sources (exchange filings and the AI sources have their own rules). */
+const finance = (id: string) => !id.startsWith('ai-') && !id.startsWith('cninfo-');
+/** Regulator actions on products and government bond issuance are news, not marketing. */
+const FUND_RULE_NEWS = /证监会|金融监管总局|交易所.{0,6}(?:发布|通知|规则)|获批|批复|核准|准予注册|处罚|叫停|暂停|整改|办法|规定|指引|征求意见|国债|地方债|专项债|特别国债|央票/;
 
 const ai = (id: string) => id.startsWith('ai-');
 /** AI vendor newsrooms and blogs, where customer stories sit between the launches. */
@@ -39,6 +45,10 @@ const RULES: Rule[] = [
     title: /周报|月报|日报|晨报|早报|周刊|周度|月度|双周|周观察|周回顾|周评|月评|行情监测|价格监测|监测周/ },
   { id: 'research-other', action: 'brief', sources: research,
     title: /^(?!.*(?:点评|快评|解读|数据|政策|策略|宏观|会议|意见|办法|规定|规则))/ },
+  // Fund and wealth-product marketing: a manager buying its own funds, launches and subscription pushes.
+  // The regulator's approval of a new product class and bond issuance keep the full path.
+  { id: 'fund-marketing', action: 'index', sources: finance, unless: FUND_RULE_NEWS,
+    title: /自购|跟投|(?:自有|固有)资金.{0,12}(?:投资|认购)|(?:基金|ETF|LOF|FOF|理财|产品|新品).{0,12}(?:发行|首发|认购|募集|发售|开售|开卖|上新|上市首日|售罄|爆款|定档)|(?:明日|今日|即将|正式|火热|重磅|起)(?:发行|发售|开售|开卖|认购)|周[一二三四五六日]开(?:售|卖)|(?:发行|发售|认购)首日|一日售罄|日光基|顶流基金经理|公募一哥/ },
   // Market recaps and flash templates.
   { id: 'market-template', action: 'brief', sources: marketNews,
     title: /午评|收评|早评|盘前|盘中|收盘|开盘|尾盘|涨停|跌停|异动|龙虎榜|融资融券|两融|主力资金|北向资金|南向资金|大宗交易|ETF|指数.{0,8}(?:涨|跌|新高|新低)|(?:涨|跌)(?:超|逾|近)\d|\d+只.{0,12}(?:涨|跌)|板块.{0,8}(?:走强|走弱|拉升|跳水|异动)|概念股|港股通|斥资.{0,12}回购/ },
@@ -46,9 +56,12 @@ const RULES: Rule[] = [
     title: /biggest moves|premarket|midday|stock futures|Dow (?:rises|falls|jumps|drops|slides)|S&P 500 (?:rises|falls|closes)|stocks? to watch/i },
   // Sina's market feed: 163 items scored in 30 days, none selected; the same news arrives from other sources.
   { id: 'source-sina-market', action: 'brief', sources: among('sina-market'), title: /[\s\S]/ },
-  // AI sources: sponsored posts, event and earnings-date notices, promotions, release tags and quotes.
+  // AI sources: sponsored posts, shopping promotions and event marketing are not shown at all.
+  { id: 'ai-advert', action: 'hide', sources: ai,
+    title: /^Sponsored\b|\bSponsored:|^DCD Studio|webinar|register now|GeForce NOW|\d+% off|Prime Day|Black Friday|Cyber Monday|gift guide|大促|好价|国补|优惠|开卖|到手价|直降|邀你|报名|招募|门票|占位/i },
+  // Event and earnings-date notices, shopping-festival news, release tags and quotes stay a source index.
   { id: 'ai-housekeeping', action: 'index', sources: ai,
-    title: /^Sponsored\b|\bSponsored:|^DCD Studio|^Video Friday|^Quoting |^\[Subscriber Exclusive\]|^\[AINews\] not much happened|Earnings (?:Conference )?Call Invitation|\bto (?:Report|Announce|Host) .{0,40}(?:Results|Earnings)|(?:Conference Call|Webcast) (?:Invitation|Notice)|^Transparency data:|opens? (?:nominations|applications|registration)|nominations open|call for (?:papers|nominations|applications)|^A guide to (?:Day \d|everything)|webinar|register now|GeForce NOW|\d+% off|Prime Day|Black Friday|Cyber Monday|gift guide|双11|双十一|好价|国补|优惠|开卖|开门红|到手价|直降|邀你|报名|招募|门票|占位/i },
+    title: /^Video Friday|^Quoting |^\[Subscriber Exclusive\]|^\[AINews\] not much happened|Earnings (?:Conference )?Call Invitation|\bto (?:Report|Announce|Host) .{0,40}(?:Results|Earnings)|(?:Conference Call|Webcast) (?:Invitation|Notice)|^Transparency data:|opens? (?:nominations|applications|registration)|nominations open|call for (?:papers|nominations|applications)|^A guide to (?:Day \d|everything)|双11|双十一|开门红/i },
   // Simon Willison's release tags of his own tools ("llm-echo 0.5"): lower-case package names only.
   { id: 'ai-release-tag', action: 'index', sources: among('ai-simon-willison'), title: /^[a-z][\w.-]* \d+\.\d+(?:\.\d+)?(?:a|b|rc)?\d*$/ },
   { id: 'ai-telecom', action: 'index', sources: among('ai-datacenterdynamics'), unless: /\bAI\b|GPU|data cent(?:er|re)/i,

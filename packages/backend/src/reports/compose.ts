@@ -1,8 +1,9 @@
 // Daily, weekly and monthly reports. Windows are Beijing calendar based and written into the report;
 // missed schedule points are caught up; regeneration creates a revision. The editors' prompts are in
 // the industry pack (industry/prompts/report-*.md), the sections follow its categories. Every domain
-// (industry/domains.ts) has its own daily report (finance: kind daily; ai: ai-daily), from the selected
-// items that belong to it; a cross-domain item can be in both.
+// (industry/domains.ts) has its own daily report (finance: kind daily; ai: ai-daily): the selected items
+// that belong to it, and a written review of the window's important stories (reviewMaterial: selected,
+// high-scoring or widely reported); a cross-domain item can be in both.
 import { z } from "zod";
 import { SITE } from "@aihot/industry/site";
 import { CATEGORIES } from "@aihot/industry/taxonomy";
@@ -16,7 +17,7 @@ import { completeReceipt, BudgetExceededError } from "../providers/receipts.ts";
 import { shutdownSignal } from "../jobs/queue.ts";
 import { WITHHELD_SOURCE_IDS } from "../publication/edge.ts";
 
-export const REPORT_VERSION = promptVersion("report-daily-lead", "report-period");
+export const REPORT_VERSION = promptVersion("report-daily-review", "report-period");
 
 const SECTION_OF: Record<string, string> = Object.fromEntries(CATEGORIES.map((c) => [c.key, c.section]));
 /** A domain's sections in report order, and where its items without a (domain) category go. */
@@ -102,7 +103,56 @@ export async function candidates(start: Date, end: Date, domain?: DomainKey): Pr
   return [...byFact.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 }
 
-/** Facts and items already covered by recent editions are not repeated. */
+/** An item of the daily review's material: whether it was selected, and how many sources reported its story. */
+export interface ReviewEntry extends ReportEntry { selected: boolean; sources: number }
+interface Material extends Candidate { selected: boolean; sources: number }
+
+/** Importance for the review: a selected item, then its score (unscored counts as 45), then breadth and first party. */
+const weightOf = (m: Material) => (m.selected ? 30 : 0) + (m.score ?? 45) + Math.min(m.sources, 6) * 6 + (m.firstParty ? 5 : 0);
+
+/**
+ * The daily review's material: the window's items with a summary that were selected, scored 60 or more, or
+ * belong to a story three or more sources reported in the window; one entry per story (else fact), the most
+ * important first. Items are attributed to the window as the report's candidates are.
+ */
+export async function reviewMaterial(start: Date, end: Date, domain: DomainKey = DEFAULT_DOMAIN, limit = 40): Promise<Material[]> {
+  const rows = await sql.begin("isolation level read committed", async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext('report_candidates'))`;
+    return tx<{
+      id: string; title: string; summary: string; url: string; category: string | null; score: number | null; selected: boolean; first_party: boolean;
+      source_id: string; source_name: string; source_kind: string; fact_public_id: string | null; story_id: number | null; story_public_id: string | null; at: Date; sources: number;
+    }[]>`
+      WITH win AS (
+        SELECT p.article_id AS id, p.title, p.summary, p.url, p.category, p.score, p.selected, p.first_party, s.id AS source_id, s.name AS source_name,
+               s.kind AS source_kind, f.public_id AS fact_public_id, f.story_id, st.public_id::text AS story_public_id,
+               CASE WHEN p.selected AND p.visible_after > p.timeline_at THEN p.visible_after ELSE p.timeline_at END AS at
+        FROM publications p JOIN sources s ON s.id = p.source_id
+        LEFT JOIN facts f ON f.id = p.fact_id LEFT JOIN stories st ON st.id = f.story_id
+        WHERE p.visibility = 'public' AND NOT p.backfill AND coalesce(p.summary, '') <> '' AND NOT s.id = ANY(${WITHHELD_SOURCE_IDS}::text[])
+          AND (p.domains @> ARRAY[${domain}]::text[] OR (${domain} = ${DEFAULT_DOMAIN} AND coalesce(cardinality(p.domains), 0) = 0))
+          AND (
+            ((NOT p.selected OR p.visible_after <= p.timeline_at) AND p.timeline_at >= ${start} AND p.timeline_at < ${end})
+            OR (p.selected AND p.visible_after > p.timeline_at AND p.visible_after >= ${start} AND p.visible_after < ${end})
+          )
+      ), breadth AS (SELECT story_id, count(DISTINCT source_id)::int AS sources FROM win WHERE story_id IS NOT NULL GROUP BY story_id)
+      SELECT w.*, coalesce(b.sources, 1) AS sources FROM win w LEFT JOIN breadth b ON b.story_id = w.story_id
+      WHERE w.selected OR w.score >= 60 OR coalesce(b.sources, 1) >= 3`;
+  });
+  const byStory = new Map<string, Material>();
+  for (const r of rows) {
+    const m: Material = {
+      itemId: r.id, factId: r.fact_public_id, storyPublicId: r.story_public_id, title: r.title, summary: r.summary,
+      sourceName: r.source_name, sourceUrl: r.url, sourceId: r.source_id, firstParty: r.first_party, role: roleOf(r.source_kind, r.first_party),
+      score: r.score === null ? null : Number(r.score), publishedAt: r.at.toISOString(), category: r.category,
+      factKey: r.fact_public_id ?? `a:${r.id}`, selected: r.selected, sources: Number(r.sources),
+    };
+    const key = r.story_id !== null ? `s:${r.story_id}` : m.factKey, prev = byStory.get(key);
+    if (!prev || Number(m.firstParty) - Number(prev.firstParty) > 0 || (m.firstParty === prev.firstParty && weightOf(m) > weightOf(prev))) byStory.set(key, m);
+  }
+  return [...byStory.values()].sort((a, b) => weightOf(b) - weightOf(a)).slice(0, limit);
+}
+
+/** Facts and items already covered by recent editions (their lists and reviews) are not repeated. */
 async function recentlyCovered(kind: string, before: string, days = 7): Promise<Set<string>> {
   const rows = await sql<{ content: Record<string, any> }[]>`
     SELECT content FROM reports WHERE kind = ${kind} AND key < ${before} AND key >= ${addDays(before, -days)}`;
@@ -113,29 +163,29 @@ async function recentlyCovered(kind: string, before: string, days = 7): Promise<
       if (it.factId) out.add(it.factId);
       if (it.clusterId) out.add(`c:${it.clusterId}`);
     }
+    for (const t of r.content.review?.themes ?? []) for (const it of t.refs ?? []) {
+      if (it.itemId) out.add(`a:${it.itemId}`);
+      if (it.factId) out.add(it.factId);
+    }
   }
   return out;
 }
 
-const LeadSchema = z.object({
-  title: z.string().max(120),
-  leadParagraph: z.string().max(600),
-  highlights: z.array(z.union([z.number(), z.string()])).max(6).catch([]),
-});
-
-async function writeLead(kind: string, key: string, entries: ReportEntry[], model: string, domain: DomainKey = DEFAULT_DOMAIN) {
-  if (entries.length === 0) return null;
-  const list = entries.slice(0, 30).map((e, i) => `${i + 1}. ${e.title}｜${e.summary.slice(0, 120)}`).join("\n");
+/** The daily review: the window's material as a numbered list for the editor; refs point back into it. */
+async function writeReview(kind: string, key: string, start: Date, end: Date, material: Material[], model: string, domain: DomainKey) {
+  const { of: sectionOf, fallback } = sectionsOf(domain), at = (d: Date) => new Date(d.getTime() + 8 * 3600000).toISOString().slice(0, 16).replace("T", " ");
+  const list = material.map((e, i) => `${i + 1}. [${sectionOf[e.category ?? ""] ?? fallback}] ${e.title}｜${e.summary.slice(0, 160)}｜${e.sourceName}${e.sources > 1 ? `，${e.sources} 家来源` : ""}${e.selected ? "，精选" : ""}`).join("\n");
   const res = await chatJson({
-    model, purpose: "report_lead", subject: `report:${kind}:${key}`, promptVersion: REPORT_VERSION,
-    system: promptText("report-daily-lead", { domainName: domainDef(domain).label }),
-    user: list, schema: LeadSchema, temperature: 0.3, maxTokens: 800,
+    model, purpose: "report_review", subject: `report:${kind}:${key}`, promptVersion: REPORT_VERSION,
+    system: promptText("report-daily-review", { domainName: domainDef(domain).label }),
+    user: `窗口：${at(start)} 至 ${at(end)}（北京时间）\n${list}`, schema: PeriodSchema, temperature: 0.3, maxTokens: 2500,
   });
-  const highlights = res.data.highlights
-    .map((h) => entries[Number(h) - 1])
-    .filter((e): e is ReportEntry => !!e)
-    .map((e) => e.itemId);
-  return { lead: { title: res.data.title, leadParagraph: res.data.leadParagraph }, highlights, receiptId: res.receiptId };
+  const entry = ({ category: _c, factKey: _f, ...e }: Material): ReviewEntry => e;
+  const themes = res.data.themes.map((t) => ({
+    heading: t.heading, summary: t.summary,
+    refs: [...new Set(t.refs.map(Number))].map((n) => material[n - 1]).filter((e): e is Material => !!e).map(entry),
+  }));
+  return { review: { headline: res.data.headline.trim(), overview: res.data.overview, themes }, receiptId: res.receiptId };
 }
 
 async function saveReport(kind: string, key: string, start: Date, end: Date, content: Record<string, unknown>, reason: string, model: string) {
@@ -154,8 +204,13 @@ async function saveReport(kind: string, key: string, start: Date, end: Date, con
   });
 }
 
-/** Daily report for Beijing date D covers [D-1 08:00, D 08:00) Beijing time; one per domain. */
-export async function composeDaily(date: string, reason = "scheduled", domain: DomainKey = DEFAULT_DOMAIN): Promise<{ key: string; entries: number }> {
+/**
+ * The daily edition for Beijing date D, which covers [D-1 08:00, D 08:00) Beijing time; one per domain. It
+ * is returned, not saved: composeDaily saves it, a preview can show it first. Selected items make the list;
+ * the review is written from the wider material (one call). A review the budget or the model cannot give
+ * leaves the edition with its list, as before.
+ */
+export async function draftDaily(date: string, domain: DomainKey = DEFAULT_DOMAIN) {
   const end = new Date(beijingMidnight(date).getTime() + 8 * 3600 * 1000);
   const start = new Date(end.getTime() - 86400000);
   const kind = reportKind("daily", domain), { order: SECTION_ORDER, of: SECTION_OF, fallback: DEFAULT_SECTION } = sectionsOf(domain);
@@ -177,20 +232,25 @@ export async function composeDaily(date: string, reason = "scheduled", domain: D
     items: perSection.get(label)!.map(({ category: _c, factKey: _f, ...entry }) => entry),
   }));
   const ordered = sections.flatMap((s) => s.items).sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const material = (await reviewMaterial(start, end, domain)).filter((m) => !covered.has(m.factKey) && !covered.has(`a:${m.itemId}`));
   const model = await modelFor("report");
-  // Selected entries are already validated. A budget-limited optional lead must not
-  // prevent the edition from publishing those entries.
-  let lead:Awaited<ReturnType<typeof writeLead>>|null=null;
-  let leadDeferred=false;
-  const leadEnabled=process.env.FINHOT_REPORT_LEAD_ENABLED!=='false';
-  if(ordered.length&&leadEnabled){
-    try{lead=await writeLead(kind,date,ordered,model,domain);}
-    catch(error){if(!(error instanceof BudgetExceededError))throw error;leadDeferred=true;}
+  let written: Awaited<ReturnType<typeof writeReview>> | null = null;
+  let leadDeferred = false, reviewFailed = false;
+  const leadEnabled = process.env.FINHOT_REPORT_LEAD_ENABLED !== 'false';
+  if (material.length && leadEnabled) {
+    try { written = await writeReview(kind, date, start, end, material, model, domain); }
+    catch (error) {
+      if (error instanceof BudgetExceededError) leadDeferred = true;
+      else { reviewFailed = true; console.error(JSON.stringify({ level: "warn", msg: "daily review failed", kind, date, error: String(error).slice(0, 300) })); }
+    }
   }
+  const review = written?.review ?? null;
   const content = {
     date,
-    lead: lead?.lead ?? null,
-    highlights: lead?.highlights ?? [],
+    review,
+    // The server's report pages and feeds read the review's headline and overview as the lead.
+    lead: review ? { title: review.headline, leadParagraph: review.overview.slice(0, 600) } : null,
+    highlights: review ? [...new Set(review.themes.flatMap((t) => t.refs.map((e) => e.itemId)))].slice(0, 5) : [],
     sections,
     flashes,
     metrics: {
@@ -198,14 +258,20 @@ export async function composeDaily(date: string, reason = "scheduled", domain: D
       sourcesCount: new Set(ordered.map((e) => e.sourceId)).size,
       modelsReleased: perSection.get("模型与产品")?.length ?? 0,
       firstPartyEvents: ordered.filter((e) => e.firstParty).length,
+      reviewMaterial: material.length,
     },
     windowStart: start.toISOString(),
     windowEnd: end.toISOString(),
-    generator: { version: REPORT_VERSION, model, repeatsSuppressed: all.length - fresh.length,leadDeferred,leadEnabled },
+    generator: { version: REPORT_VERSION, model, repeatsSuppressed: all.length - fresh.length, leadDeferred, leadEnabled, ...(reviewFailed ? { reviewFailed } : {}) },
   };
-  await saveReport(kind, date, start, end, content, reason, model);
-  if (lead) await completeReceipt(sql, lead.receiptId);
-  return { key: date, entries: ordered.length };
+  return { kind, start, end, model, content, receiptId: written?.receiptId ?? null, entries: ordered.length };
+}
+
+export async function composeDaily(date: string, reason = "scheduled", domain: DomainKey = DEFAULT_DOMAIN): Promise<{ key: string; entries: number }> {
+  const draft = await draftDaily(date, domain);
+  await saveReport(draft.kind, date, draft.start, draft.end, draft.content, reason, draft.model);
+  if (draft.receiptId) await completeReceipt(sql, draft.receiptId);
+  return { key: date, entries: draft.entries };
 }
 
 export const PeriodSchema = z.object({
@@ -304,6 +370,31 @@ export async function repairEmptyDailyReports(now=new Date(),days=3):Promise<str
       const available=(await candidates(row.window_start,row.window_end,domain===DEFAULT_DOMAIN?undefined:domain)).filter(c=>!covered.has(c.factKey)&&!covered.has('a:'+c.itemId));
       if(!available.length)continue;
       await composeDaily(row.key,'repair-empty',domain);repaired.push(domain===DEFAULT_DOMAIN?row.key:`${domain}:${row.key}`);
+    }
+  }
+  return repaired;
+}
+
+/**
+ * Editions of the last days published without their review because the budget deferred it are written again
+ * once a review can be had (one call each); a retry that still gets none leaves the edition as it is.
+ */
+export async function repairDeferredReviews(now = new Date(), days = 2): Promise<string[]> {
+  if (process.env.FINHOT_REPORT_LEAD_ENABLED === 'false') return [];
+  const today = beijingDate(now), hour = Number(new Date(now.getTime() + 8 * 3600000).toISOString().slice(11, 13));
+  const latestDue = hour >= 8 ? today : addDays(today, -1);
+  const repaired: string[] = [];
+  for (const domain of reportDomains()) {
+    const kind = reportKind('daily', domain);
+    const rows = await sql<{ key: string }[]>`SELECT key FROM reports WHERE kind = ${kind} AND key >= ${addDays(latestDue, -days + 1)} AND key <= ${latestDue}
+      AND coalesce(content->'review', 'null'::jsonb) = 'null'::jsonb AND coalesce((content->'generator'->>'leadDeferred')::boolean, false) ORDER BY key`;
+    for (const row of rows) {
+      if (shutdownSignal.signal.aborted) return repaired;
+      const draft = await draftDaily(row.key, domain);
+      if (!draft.content.review) continue;
+      await saveReport(kind, row.key, draft.start, draft.end, draft.content, 'review-deferred', draft.model);
+      if (draft.receiptId) await completeReceipt(sql, draft.receiptId);
+      repaired.push(domain === DEFAULT_DOMAIN ? row.key : `${domain}:${row.key}`);
     }
   }
   return repaired;

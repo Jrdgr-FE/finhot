@@ -11,7 +11,7 @@ import { refreshSourceIcons } from "@aihot/backend/sources/icons";
 import { computeHotRanking, snapshotHeat } from "@aihot/backend/events/hot";
 import { refreshStoryStatuses } from "@aihot/backend/events/digest";
 import { linkRelatedStories } from "@aihot/backend/events/group";
-import { catchUpReports, repairEmptyDailyReports, composeDaily, composeMonthly, composeWeekly, reportDomains } from "@aihot/backend/reports/compose";
+import { catchUpReports, repairEmptyDailyReports, repairDeferredReviews, composeDaily, composeMonthly, composeWeekly, reportDomains } from "@aihot/backend/reports/compose";
 import { DEFAULT_DOMAIN } from "@aihot/industry/domains";
 import { addDays, beijingDate, isoWeekLabel } from "@aihot/contracts/time";
 import { runLeaderboardRound } from "@aihot/backend/leaderboard/method/run";
@@ -69,7 +69,7 @@ export const SCHEDULES: Scheduled[] = [
       return composeMonthly(m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`);
     },
   },
-  { name: "reports.repair-empty", cron: "*/10 * * * *", run: () => repairEmptyDailyReports() },
+  { name: "reports.repair-empty", cron: "*/10 * * * *", run: async () => [...await repairEmptyDailyReports(), ...await repairDeferredReviews()] },
   { name: "reports.catch-up", cron: "15 * * * *", run: () => catchUpReports() },
   { name: "ops.retention", cron: "30 3 * * *", missed: "once", run: () => dailyRetention() },
   { name: "sources.icons", cron: "40 4 * * *", missed: "once", run: () => refreshSourceIcons() },

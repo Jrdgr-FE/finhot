@@ -1,5 +1,5 @@
 import type { D1Database } from '@cloudflare/workers-types';
-import { SYNC_DOMAIN_KEY,type SyncItem,type SyncMetadata } from '../../packages/backend/src/publication/synced.ts';
+import { SYNC_DOMAIN_KEY,type SyncItem,type SyncMetadata,type SyncReview } from '../../packages/backend/src/publication/synced.ts';
 export const json=(value:unknown,status=200)=>Response.json(value,{status,headers:{'cache-control':'no-store'}});
 export const digest=async(value:string)=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(n=>n.toString(16).padStart(2,'0')).join('');
 export async function secretMatches(supplied:string|null,secret:string|undefined){return!!secret&&secret.length>=12&&!!supplied&&(await digest(supplied))===(await digest(secret));}
@@ -29,11 +29,18 @@ function metadataOf(m:SyncMetadata):SyncMetadata {
   return {sources:m.sources.map(s=>{
     if(!/^https?:\/\//.test(s.homepage)||!Number.isInteger(s.intervalMinutes)||s.intervalMinutes<1||(s.domains!==undefined&&!domainList(s.domains)))throw new TypeError('Invalid source');
     return Object.fromEntries(['id','name','group','homepage','tier','intervalMinutes','domains','checked_at','failed','count','latest_published_at'].filter(k=>Object.hasOwn(s,k)).map(k=>[k,s[k]])) as SyncMetadata['sources'][number];
-  }),categories:labels(m.categories),groups:labels(m.groups),...(domains?{domains}:{}),reports:m.reports.map(r=>({date:r.date,...(r.domain?{domain:r.domain}:{}),created_at:r.created_at,ids:r.ids,mode:r.mode==='source-index'?'source-index':'selected',...(r.windowStart?{windowStart:r.windowStart,windowEnd:r.windowEnd}:{})})),summaryBudgetReached:m.summaryBudgetReached,
+  }),categories:labels(m.categories),groups:labels(m.groups),...(domains?{domains}:{}),reports:m.reports.map(r=>{const review=reviewOf(r);return {date:r.date,...(r.domain?{domain:r.domain}:{}),created_at:r.created_at,ids:r.ids,mode:r.mode==='source-index'?'source-index':review?'review':'selected',...(r.windowStart?{windowStart:r.windowStart,windowEnd:r.windowEnd}:{}),...(review?{review}:{})};}),summaryBudgetReached:m.summaryBudgetReached,
     ...(m.archiveMode==='persistent'?{archiveMode:'persistent' as const}:{}),
     coverage,budgets:m.budgets.map((b:any)=>Object.fromEntries(['service','per_minute','per_hour','per_day','daily_cost_limit','cost_currency','used','cost'].filter(k=>Object.hasOwn(b,k)).map(k=>[k,b[k]])))};
 }
-function itemOf(value:any,sourceIds:Set<string>):SyncItem{
+/** A report's written review: bounded text, themes citing only the report's own items. */
+function reviewOf(r:any):SyncReview|undefined{
+  const v=r.review;if(v===undefined||v===null)return undefined;
+  const ids=new Set<string>(r.ids),text=(s:unknown,max:number)=>typeof s==='string'&&s.length<=max;
+  if(!text(v.headline,60)||!text(v.overview,1500)||!Array.isArray(v.themes)||!v.themes.length||v.themes.length>6||!v.themes.every((t:any)=>text(t?.heading,60)&&text(t.summary,800)&&Array.isArray(t.ids)&&t.ids.length<=8&&t.ids.every((id:unknown)=>typeof id==='string'&&ids.has(id))))throw new TypeError('Invalid report review');
+  return {headline:v.headline,overview:v.overview,themes:v.themes.map((t:any)=>({heading:t.heading,summary:t.summary,ids:[...t.ids]}))};
+}
+export function itemOf(value:any,sourceIds:Set<string>):SyncItem{
   const fields=['id','url','source_id','source_name','title','original_title','title_en','summary_en','summary','category','selected','published_at','discovered_at','ready_at','state','body_status','body_length','material_scope','domains','primary_domain'];
   if(value?.domains!==undefined&&(!domainList(value.domains)||!value.domains.includes(value.primary_domain)))throw new TypeError('Invalid domains');
   for(const key of ['title_en','summary_en'])if(value?.[key]!=null&&(typeof value[key]!=='string'||value[key].length>(key==='title_en'?1500:8000)||/[\u3400-\u9fff]/u.test(value[key])))throw new TypeError('Invalid English copy');

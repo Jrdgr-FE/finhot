@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {before,after,beforeEach,test} from 'node:test';
-import {readFile,mkdtemp,stat} from 'node:fs/promises';
+import {readFile,writeFile,mkdtemp,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
@@ -8,6 +8,8 @@ import worker from '../../ecs/cloudflare-sync-worker.ts';
 import {pushSnapshot} from '../../ecs/push-public.ts';
 import {syncedHealth,syncedItems} from '../../../packages/backend/src/publication/synced.ts';
 import {monitorSync} from '../../ecs/sync-monitor.ts';
+import {articleHtml,reportHtml} from '../../ecs/public-html.ts';
+import {prepareSnapshot} from '../../ecs/sync-validation.ts';
 let mf:Miniflare,env:any,stateFile:string;
 const token='sync-test-token-at-least-32-characters';
 before(async()=>{
@@ -388,4 +390,78 @@ test('staging cleanup scans eligible generations before the large unexpired back
   assert.ok(metrics.reduce((n,m)=>n+m.rows_read,0)<100,'cleanup must not scan the 3000 unexpired staging rows');
   assert.equal((await env.DB.prepare("SELECT count(*) n FROM server_sync_stage WHERE generation='recentbacklog'").first()).n,3000);
   assert.equal((await env.DB.prepare("SELECT count(*) n FROM server_sync_stage WHERE generation='expiredsmall'").first()).n,0);
+});
+test('an AI page names its domain in the header and footer, links within it and drops FinMap',async()=>{
+  const domains=[{key:'finance',label:'金融',labelEn:'Finance',categories:['market']},{key:'ai',label:'AI 与硬科技',labelEn:'AI & Deep Tech',categories:['chips']}];
+  const meta:any={...metadata(['a']),categories:{market:'市场',chips:'芯片与半导体'},domains};
+  const ai=await articleHtml({...item('a'),category:'chips',domains:['ai'],primary_domain:'ai'} as any,meta,'https://test.local','zh-CN').text();
+  assert.match(ai,/data-i18n="AI 动态" data-nav="\/all" href="\/all\?domain=ai"/);assert.match(ai,/从 AI 与硬科技信息，到研究起点。/);
+  assert.match(ai,/Your starting point for AI &amp; Deep Tech research\./);assert.match(ai,/href="\/feed\/ai\.xml"/);
+  assert.doesNotMatch(ai,/金融动态|金融图谱|金融精选|#products/);
+  const brief=await reportHtml({date:'2026-01-01',created_at:'2026-01-01T00:00:00.000Z',items:[]},'https://test.local','zh-CN',domains[1] as any).text();
+  assert.match(brief,/href="\/daily\?domain=ai"/);assert.doesNotMatch(brief,/金融动态|金融图谱/);
+  const finance=await articleHtml(item('b') as any,meta,'https://test.local','zh-CN').text();
+  assert.match(finance,/data-i18n="金融动态" data-nav="\/all" href="\/all"/);assert.match(finance,/map\.finhot\.fun/);assert.doesNotMatch(finance,/domain=ai/);
+});
+
+test('a written daily review travels with its report to the API, page, archive list and RSS; a bad review is refused',async()=>{
+  const review={headline:'央行降准落地',overview:'过去 24 小时，央行宣布降准。',themes:[{heading:'货币政策',summary:'央行宣布降准 0.5 个百分点。',ids:['b']}]};
+  const m:any=metadata(['b','a']);m.reports=[{date:'2026-01-01',created_at:'2026-01-01T00:00:00.000Z',ids:['b','a'],mode:'review',review}];
+  assert.equal((await begin('one',['a','b'],'',2,undefined,{metadata:m})).status,200);
+  await commit('one',[item('a'),{...item('b',0),summary:'降准摘要'}]);
+  const api=await (await request('/api/reports/2026-01-01')).json();
+  assert.equal(api.mode,'review');assert.deepEqual(api.items.map((i:any)=>i.id),['b','a'],'a cited item is shown though not selected');assert.deepEqual(api.review,review);
+  assert.equal((await (await request('/api/reports')).json()).reports[0].headline,'央行降准落地');
+  const html=await (await request('/daily/2026-01-01?lang=zh-CN')).text();
+  assert.match(html,/<h1>央行降准落地<\/h1>/);assert.match(html,/过去 24 小时，央行宣布降准。/);assert.match(html,/<h2>货币政策<\/h2>/);assert.match(html,/href="\/articles\/b"/);
+  const rss=await (await request('/feed.xml')).text();
+  assert.match(rss,/每日金融简报 2026-01-01：央行降准落地/);assert.match(rss,/https:\/\/test\.local\/daily\/2026-01-01/);
+  const bad:any=metadata(['a']);bad.reports=[{date:'2026-01-02',created_at:'2026-01-02T00:00:00.000Z',ids:['a'],mode:'review',review:{...review,themes:[{...review.themes[0],ids:['elsewhere']}]}}];
+  assert.equal((await begin('two',['a'],'one',0,'2026-01-02T00:00:00.000Z',{metadata:bad})).status,400);
+});
+test('starting now skips unpublished backlog but keeps published archives and new items',()=>{
+  const start='2026-01-02T00:00:00.000Z',items=[item('published'),item('backlog'),{...item('fresh'),discovered_at:start}];
+  const r=prepareSnapshot({items,feedIds:items.map(i=>i.id),visibleIds:items.map(i=>i.id),metadata:metadata(items.map(i=>i.id))},{startAt:start,known:new Set(['published'])});
+  assert.deepEqual(r.snapshot.items.map((i:any)=>i.id),['published','fresh']);assert.equal(r.skipped,1);assert.equal(r.rejected.length,0);
+  assert.deepEqual(r.snapshot.feedIds,['published','fresh']);assert.deepEqual(r.snapshot.metadata.reports,[]);
+  const old=metadata(['published']).reports[0];
+  const kept=prepareSnapshot({items,feedIds:items.map(i=>i.id),metadata:metadata(['backlog'])},{startAt:start,known:new Set(['published']),knownReports:[old]});
+  assert.deepEqual(kept.snapshot.metadata.reports,[old]);
+});
+test('one malformed record is quarantined while valid news and report references publish',async()=>{
+  const config={url:'https://test.local',token,stateFile,fetcher:((url:any,init:any)=>worker.fetch(new Request(url,init),env)) as typeof fetch};
+  const snapshot={capturedAt:'2026-01-01T00:00:00.000Z',items:[item('good'),{...item('repair'),url:'www.bea.gov/news/gdp'},{...item('bad'),url:'javascript:alert(1)'}],metadata:metadata(['good','repair','bad'])};
+  const result=await pushSnapshot(snapshot,config);assert.equal(result.quarantined,1);
+  const rows=(await env.DB.prepare('SELECT data_json FROM server_sync_items ORDER BY id').all()).results.map((r:any)=>JSON.parse(r.data_json));
+  assert.deepEqual(rows.map((r:any)=>r.id),['good','repair']);assert.equal(rows[1].url,'https://www.bea.gov/news/gdp');
+  const active=JSON.parse((await env.DB.prepare("SELECT metadata_json FROM server_sync_state WHERE key='active'").first()).metadata_json);
+  assert.deepEqual(active.reports[0].ids,['good','repair']);
+  assert.deepEqual(JSON.parse(await readFile(stateFile+'.invalid.json','utf8')).rejected,[{id:'bad',reason:'Invalid article URL'}]);
+});
+test('interrupted uploads repair an invalid address without replacing the generation or resending confirmed chunks',async()=>{
+  let lose=true;const paths:string[]=[];
+  const config={url:'https://test.local',token,stateFile,fetcher:(async(url:any,init:any)=>{
+    const path=new URL(url).pathname;paths.push(path);
+    if(path==='/_sync/items'&&lose){lose=false;return new Response('temporary',{status:503});}
+    return worker.fetch(new Request(url,init),env);
+  }) as typeof fetch};
+  const snapshot={capturedAt:'2026-01-01T00:00:00.000Z',items:[item('repair')],metadata:metadata(['repair'])};
+  await assert.rejects(pushSnapshot(snapshot,config),/HTTP 503/);
+  const p=JSON.parse(await readFile(stateFile+'.pending','utf8')),generation=p.begin.generation;
+  p.chunks[0][0].url='www.bea.gov/news/gdp';await writeFile(stateFile+'.pending',JSON.stringify(p));
+  paths.length=0;const result=await pushSnapshot(()=>assert.fail('resume must not read a fresh snapshot'),config);
+  assert.equal(result.generation,generation);assert.deepEqual(paths,['/_sync/head','/_sync/begin','/_sync/items','/_sync/commit']);
+  assert.equal(JSON.parse((await env.DB.prepare("SELECT data_json FROM server_sync_items WHERE id='repair'").first()).data_json).url,'https://www.bea.gov/news/gdp');
+});
+test('a permanently invalid checkpoint is preserved for diagnosis and rebuilt from current publications',async()=>{
+  let fail=true;const config={url:'https://test.local',token,stateFile,fetcher:(async(url:any,init:any)=>{
+    if(new URL(url).pathname==='/_sync/items'&&fail)return new Response('temporary',{status:503});
+    return worker.fetch(new Request(url,init),env);
+  }) as typeof fetch};
+  const snapshot={capturedAt:'2026-01-01T00:00:00.000Z',items:[item('good')],metadata:metadata(['good'])};
+  await assert.rejects(pushSnapshot(snapshot,config));const p=JSON.parse(await readFile(stateFile+'.pending','utf8'));
+  p.chunks[0][0].title='';await writeFile(stateFile+'.pending',JSON.stringify(p));fail=false;
+  const result=await pushSnapshot(snapshot,config);assert.notEqual(result.generation,p.begin.generation);
+  assert.equal((await env.DB.prepare('SELECT count(*) AS n FROM server_sync_items').first()).n,1);
+  assert.equal(JSON.parse(await readFile(stateFile+'.rejected','utf8')).begin.generation,p.begin.generation);
 });

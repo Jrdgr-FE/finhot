@@ -4,6 +4,17 @@ import net from "node:net";
 
 const TRACKING_PARAMS = /^(utm_[a-z]+|spm|from|ref|ref_src|ref_url|source|share_source|share_token|fbclid|gclid|igshid|mc_cid|mc_eid|_hsenc|_hsmi|scene|chksm|sessionid|srcid|clicktime|enterid|mkt_tok)$/i;
 
+/** Resolve a source link without changing its host, query or article fragment. */
+export function resolveHttpUrl(input: string, base?: string): string | null {
+  const value = input.trim();
+  if (!value || /[\u0000-\u001f\u007f]/.test(value)) return null;
+  try {
+    const url = new URL(/^www\./i.test(value) ? `https://${value}` : value, base);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.href.length > 4096) return null;
+    return url.href;
+  } catch { return null; }
+}
+
 /** Canonical form used for identity: lower-case host, no fragment, no tracking params, no trailing slash. */
 export function normalizeUrl(input: string): string | null {
   let u: URL;

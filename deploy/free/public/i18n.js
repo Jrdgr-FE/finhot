@@ -1,3 +1,4 @@
+import './terminal.js';
 import { messages } from './translations.js';
 
 // Chinese is the default. Only an explicit toggle is remembered: the previous
@@ -15,12 +16,11 @@ export const t = (text, values = {}) => {
   return translated.replace(/\{(\w+)\}/g, (match, name) => String(values[name] ?? match));
 };
 
-// Server-rendered pages choose their content language from ?lang= and mark it
-// with data-content-language; reload when it differs from the reader's choice.
-const content = document.querySelector('[data-content-language]');
-if (content ? content.dataset.contentLanguage !== language : language === 'en' && !requested && /^\/(?:articles\/|daily\/.)/.test(location.pathname)) {
+// Server-rendered pages choose their content language from ?lang=, so send
+// readers who picked English to the English edition.
+if (language === 'en' && !requested && /^\/(?:articles\/|daily\/.)/.test(location.pathname)) {
   const url = new URL(location.href);
-  url.searchParams.set('lang', language);
+  url.searchParams.set('lang', 'en');
   location.replace(url.href);
 }
 

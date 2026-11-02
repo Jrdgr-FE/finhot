@@ -19,3 +19,10 @@
   Cache-Control: public, max-age=0, must-revalidate
 /icon.png
   Cache-Control: public, max-age=0, must-revalidate
+
+/fin-suite.css
+  Cache-Control: public, max-age=0, must-revalidate
+/fin-suite.js
+  Cache-Control: public, max-age=0, must-revalidate
+/terminal.js
+  Cache-Control: public, max-age=0, must-revalidate

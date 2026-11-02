@@ -11,6 +11,7 @@ const lines = (file: string) => readFileSync(file, 'utf8').split('\n').filter(Bo
 const rows: Row[] = lines(process.argv[2]!);
 /** What a screened item no longer pays for. */
 const SAVED: Record<Exclude<PrescreenAction, 'full'>, (purpose: string) => boolean> = {
+  hide: () => true,
   index: () => true,
   brief: (p) => ['score_article', 'understand_article', 'structure_article', 'prefilter_article'].includes(p),
 };
@@ -32,7 +33,7 @@ for (const r of rows) {
     map.set(key, t);
   }
   total.n++; total.cost += cost; total.saved += saved; total.selected += +!!r.selected; total.scored += +!!r.scored; total.briefed += +!!r.briefed;
-  const s = bySource.get(r.source_id) ?? { n: 0, index: 0, brief: 0, full: 0 };
+  const s = bySource.get(r.source_id) ?? { n: 0, hide: 0, index: 0, brief: 0, full: 0 };
   s.n++; s[action]++; bySource.set(r.source_id, s);
   if (r.selected && action !== 'full') misses.push({ ...r, rule: rule! });
 }
@@ -44,8 +45,8 @@ for (const [a, t] of byAction) console.log(`${a.padEnd(6)} ${String(t.n).padStar
 console.log(`saved USD ${usd(total.saved)} of ${usd(total.cost)} (${pct(total.saved, total.cost)})`);
 console.log(`\n## By rule`);
 for (const [k, t] of [...byRule].sort((a, b) => b[1].n - a[1].n)) console.log(`${k.padEnd(22)} ${String(t.n).padStart(6)}  briefed ${String(t.briefed).padStart(5)}  scored ${String(t.scored).padStart(4)}  selected ${String(t.selected).padStart(3)}  saved ${usd(t.saved)}`);
-console.log(`\n## By source (arrivals: index / brief / full)`);
-for (const [k, s] of [...bySource].sort((a, b) => b[1].n - a[1].n)) console.log(`${k.padEnd(26)} ${String(s.n).padStart(5)}: ${s.index} / ${s.brief} / ${s.full}`);
+console.log(`\n## By source (arrivals: hidden or index / brief / full)`);
+for (const [k, s] of [...bySource].sort((a, b) => b[1].n - a[1].n)) console.log(`${k.padEnd(26)} ${String(s.n).padStart(5)}: ${s.hide + s.index} / ${s.brief} / ${s.full}`);
 console.log(`\n## Selected items the rules would have screened out (${misses.length} of ${total.selected})`);
 for (const m of misses) console.log(`- [${m.rule}] ${m.source_id} · ${m.score ?? ''} · ${m.title.slice(0, 90)}`);
 
@@ -56,7 +57,7 @@ const perBrief = spent('brief_article') / calls('brief_article'), perScore = spe
 const briefedFull = rows.filter((r) => r.briefed && prescreen(r.source_id, r.title).action === 'full');
 const relevantAll = rows.filter((r) => r.briefed).reduce((s, r) => s + +!!r.relevant, 0) / rows.filter((r) => r.briefed).length;
 const relevantFull = briefedFull.reduce((s, r) => s + +!!r.relevant, 0) / briefedFull.length;
-const perDay = (n: number) => n / days, fullN = byAction.get('full')?.n ?? 0, indexN = byAction.get('index')?.n ?? 0;
+const perDay = (n: number) => n / days, fullN = byAction.get('full')?.n ?? 0, indexN = (byAction.get('index')?.n ?? 0) + (byAction.get('hide')?.n ?? 0);
 const demand = (briefs: number, scored: number, scoresPerItem: number) => perDay(briefs) * perBrief + perDay(scored) * perScore * scoresPerItem;
 console.log(`\n## Daily demand if every arrival is processed (brief USD ${perBrief.toFixed(5)}/call, score USD ${perScore.toFixed(5)}/call; relevant ${pct(relevantAll * 1000, 1000)} overall, ${pct(relevantFull * 1000, 1000)} of full)`);
 console.log(`now (every item briefed, relevant ones scored twice): ${Math.round(perDay(total.n))} briefs + ${Math.round(perDay(total.n * relevantAll))} scored/day ≈ USD ${demand(total.n, total.n * relevantAll, 2).toFixed(2)}/day`);

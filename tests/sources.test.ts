@@ -21,6 +21,10 @@ const source = (config: Record<string, unknown>) => ({ id: "test-list", config }
 // map, the route table naming the homepage's chunks, and the chunk with the Blog list among the menu,
 // the model cards, the other sections and a Paper list built at run time.
 const pages: Record<string, (cdn: string) => string> = {
+  '/malformed-links.xml': () => `<rss version="2.0"><channel>${[
+    ['BEA','www.bea.gov/news/2026/gdp'],['Relative','/release'],['Protocol relative','//example.org/news'],
+    ['Unsafe','javascript:alert(1)'],['Credential URL','https://name:password@example.org/']
+  ].map(([title,link])=>`<item><title>${title}</title><link>${link}</link></item>`).join('')}<item><title>Opaque</title><guid isPermaLink="false">urn:uuid:123</guid></item></channel></rss>`,
   "/": (cdn) =>
     `<html><head><script defer src="${cdn}static/js/lib-react.a6be410a.js"></script><script defer src="${cdn}static/js/4752.2908c99e.js"></script>` +
     `<script defer src="${cdn}static/js/index.c5195ace.js"></script></head><body><a href="/zh/index">简体中文</a><a href="/mimocode">MiMo Code</a>` +
@@ -109,6 +113,11 @@ test("JSON disclosure sources submit forms and retain company identifiers", asyn
   assert.deepEqual(unsupportedConfig("json_list", cfg), []);
   const rows = await fetchJsonList(source(cfg));
   assert.equal(rows[0]!.title, "测试公司 · 000001 · 业绩预告");
+});
+
+test('RSS repairs source addresses and skips invalid entries without losing the rest of the feed',async()=>{
+  const {candidates}=await fetchRss(source({feedUrl:`${site}/malformed-links.xml`}));
+  assert.deepEqual(candidates.map(c=>c.url),['https://www.bea.gov/news/2026/gdp',`${site}/release`,'http://example.org/news']);
 });
 
 test("RSS dates without a timezone honor the source timezone", async () => {

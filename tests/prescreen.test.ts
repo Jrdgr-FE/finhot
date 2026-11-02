@@ -61,10 +61,16 @@ test('AI launches, deals, chips and policy keep the full path', () => {
   ]) assert.equal(action(source!, title!), 'full', title);
 });
 
-test('AI housekeeping, customer stories, digests and event PR are screened', () => {
+test('AI adverts, housekeeping, customer stories, digests and event PR are screened', () => {
   assert.deepEqual(prescreen('ai-ieee-spectrum-robotics', 'Video Friday: Meet Microduck'), { action: 'index', rule: 'ai-housekeeping' });
   assert.equal(action('ai-skhynix-newsroom', 'Q3 2026 Earnings Conference Call Invitation'), 'index');
-  assert.equal(action('ai-leiphone', '全年最优惠！真正的双11今晚8点天猫开卖'), 'index');
+  // Adverts and promotions are not shown at all; event notices stay a source index.
+  assert.deepEqual(prescreen('ai-leiphone', '全年最优惠！真正的双11今晚8点天猫开卖'), { action: 'hide', rule: 'ai-advert' });
+  assert.equal(action('ai-datacenterdynamics', 'Sponsored: The metric that matters: Why AI data centers should be measured in value, not volume'), 'hide');
+  assert.equal(action('ai-datacenterdynamics', 'DCD Studio: Powering the AI factory'), 'hide');
+  assert.equal(action('ai-nvidia-blog', 'Kick Off the Holidays With 3 New Games in the Cloud on GeForce NOW'), 'hide');
+  assert.equal(action('ai-leiphone', '双11大促火热开局，千川多重产品助力生意爆发'), 'hide');
+  assert.equal(action('ai-leiphone', '双11首日：天猫稳居品牌成交主阵地，124个品牌成交破亿'), 'index');
   assert.deepEqual(prescreen('ai-simon-willison', 'llm-tools-datasette 0.1.1'), { action: 'index', rule: 'ai-release-tag' });
   assert.equal(action('ai-datacenterdynamics', 'Cable theft causes Openreach broadband outage for thousands in Thurnscoe, UK'), 'index');
   assert.equal(action('ai-openai-news', 'Sophos cuts threat investigation time by 96% with OpenAI Daybreak'), 'brief');
@@ -76,4 +82,15 @@ test('AI housekeeping, customer stories, digests and event PR are screened', () 
   assert.equal(action('ai-datacenterdynamics', 'Chief Telecom breaks ground on 16MW data center in Taiwan'), 'brief');
   // Version-looking titles outside Simon Willison's tags are launches.
   assert.equal(action('ai-the-decoder', 'Claude 5.5'), 'full');
+});
+
+test('fund self-purchases and product launches make no model call; regulator approvals and bonds keep the full path', () => {
+  assert.deepEqual(prescreen('json-wscn-lives', '“公募一哥”宣布自购 18只主动ETF明日发行'), { action: 'index', rule: 'fund-marketing' });
+  assert.equal(action('ths-news', '华夏基金：公司及高管拟自购不低于5000万元'), 'index');
+  assert.equal(action('21jingji-capital', '百亿基金经理新基金认购首日超50亿'), 'index');
+  assert.equal(action('json-eastmoney-news', '某银行理财新品首发 一日售罄'), 'index');
+  for (const title of ['首批18只主动管理ETF获批 明日起发行', '证监会准予注册首批主动ETF', '财政部：明日发行2026年超长期特别国债'])
+    assert.equal(action('json-wscn-lives', title), 'full', title);
+  // Exchange filings keep their own rules.
+  assert.equal(action('cninfo-company', '某公司 · 600000 · 关于控股股东跟投暨关联交易的公告'), 'full');
 });

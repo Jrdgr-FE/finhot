@@ -4,7 +4,7 @@
 import type { z } from "zod";
 import { config, credential } from "../config.ts";
 import { sha256 } from "../lib/ids.ts";
-import { completeReceipt, paidRequest, ProviderRejectedError, rejectReceivedResponse } from "./receipts.ts";
+import { BudgetExceededError, completeReceipt, paidRequest, ProviderRejectedError, rejectReceivedResponse } from "./receipts.ts";
 import { sql } from "../db.ts";
 import { reserveModelCharge, modelUsageCharge } from "./model-cost.ts";
 
@@ -154,6 +154,7 @@ function isConnectFailure(error: unknown): boolean {
   return ["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT", "ECONNRESET_BEFORE_SEND", "CERT_HAS_EXPIRED"].includes(code ?? "");
 }
 
+const accessBackoff=new Map<string,number>();
 export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): Promise<ChatJsonResult<z.infer<S>>> {
   const spec = MODELS[opts.model];
   if (!spec) throw new Error(`Unknown model ${opts.model}`);
@@ -161,6 +162,9 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
   const baseUrl = credential("models", spec.baseUrlEnv);
   const apiKey = credential("models", spec.apiKeyEnv);
   if (!baseUrl || !apiKey || !spec.model) throw new Error(`Model ${opts.model} is not configured (${spec.baseUrlEnv}, ${spec.apiKeyEnv}${spec.key === "default" ? ", LLM_MODEL" : ""})`);
+  const accessKey=sha256(JSON.stringify([baseUrl,spec.model,apiKey]));
+  const retryIn=(accessBackoff.get(accessKey)??0)-Date.now();
+  if(retryIn>0)throw new BudgetExceededError(spec.service,'model authorization',Math.ceil(retryIn/1000));
 
   const temperature = opts.temperature ?? 0.2;
   // Reasoning models bill their thinking against max_tokens. A model whose thinking cannot be switched
@@ -228,7 +232,15 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
         cost: modelUsageCharge(charge, usage),
       };
     },
-  );
+  ).catch(error=>{
+    if(error instanceof ProviderRejectedError&&[401,403].includes(error.status??0)){
+      // One bad account/model combination must not fail thousands of articles.
+      // Credential/model changes get a new key; otherwise retry once per hour.
+      accessBackoff.set(accessKey,Date.now()+3600000);
+      throw new BudgetExceededError(spec.service,'model authorization',3600);
+    }
+    throw error;
+  });
 
   const response = receipt.response as { choices?: Array<{ message?: { content?: string }; finish_reason?: string }>; usage?: Record<string, unknown> };
   const content = response.choices?.[0]?.message?.content ?? "";

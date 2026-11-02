@@ -1,9 +1,9 @@
-import { gate, stub, tag } from "./setup.ts";
+import { gate, stub, tag, Reply } from "./setup.ts";
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { z } from "zod";
 import { sql, closeDb } from "@aihot/backend/db";
-import { BudgetExceededError, paidRequest } from "@aihot/backend/providers/receipts";
+import { BudgetExceededError, paidRequest, ProviderRejectedError } from "@aihot/backend/providers/receipts";
 import { reserveModelCharge, modelUsageCharge } from "@aihot/backend/providers/model-cost";
 import { chatJson, ModelOutputError } from "@aihot/backend/providers/llm";
 
@@ -41,6 +41,30 @@ test("unknown outcomes keep their reservation and a new retry cannot bypass the 
   await assert.rejects(paidRequest(req, async () => { throw new Error("lost reply"); }));
   await sql`UPDATE receipts SET status='failed' WHERE service=${service}`;
   await assert.rejects(paidRequest(req, async () => assert.fail("cannot send")), BudgetExceededError);
+});
+
+test('model authorization refusals release money while retaining attempts and unknown outcomes remain reserved',async()=>{
+  const service=await budget();
+  await assert.rejects(paidRequest(request(service,0.9),async()=>{throw new ProviderRejectedError('HTTP 403: model not allowed',403,false);}),ProviderRejectedError);
+  const [attempt]=await sql`SELECT cost,currency,reserved_cost,status FROM receipt_attempts WHERE service=${service}`;
+  assert.equal(attempt!.cost,0);assert.equal(attempt!.currency,'USD');assert.equal(attempt!.reserved_cost,0.9);assert.equal(attempt!.status,'failed');
+  await paidRequest(request(service,0.9),async()=>({response:{ok:true}}));
+  await assert.rejects(paidRequest(request(service,0.2),async()=>assert.fail('the successful request still consumes its reserve')),BudgetExceededError);
+});
+
+test('a denied model pauses later articles and changing credentials permits a new attempt',async()=>{
+  const model=`denied-${tag()}`,provider=await stub(()=>new Reply(403,{error:{message:'model not allowed'}}));
+  const saved={base:process.env.LLM_BASE_URL,key:process.env.LLM_API_KEY,model:process.env.LLM_MODEL};
+  process.env.LLM_BASE_URL=provider.url;process.env.LLM_API_KEY='test-denied-key';process.env.LLM_MODEL=model;
+  const ask=(subject:string)=>chatJson({model:'default',purpose:'access_test',subject,promptVersion:'1',system:'s',user:subject,maxTokens:512,schema:z.object({ok:z.boolean()})});
+  try{
+    await assert.rejects(ask('first'),/model authorization/);
+    await assert.rejects(ask('second'),/model authorization/);assert.equal(provider.hits(),1);
+    process.env.LLM_API_KEY='test-replaced-key';await assert.rejects(ask('third'),/model authorization/);assert.equal(provider.hits(),2);
+  }finally{
+    for(const [key,value]of Object.entries({LLM_BASE_URL:saved.base,LLM_API_KEY:saved.key,LLM_MODEL:saved.model}))if(value===undefined)delete process.env[key];else process.env[key]=value;
+    await provider.close();
+  }
 });
 
 test("unpriced requests, wrong currencies and unpriced earlier attempts fail closed", async () => {

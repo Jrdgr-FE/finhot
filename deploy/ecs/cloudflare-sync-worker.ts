@@ -88,7 +88,7 @@ async function publicRead(request:Request,env:Env,state:NonNullable<Awaited<Retu
     const filter=domain&&domains.length>1?domain.key:undefined;
     return json({...await syncedItems(env.DB,{all:q.get('all')==='1',category,domain:filter,sourceIds:group||source?sourceIds:undefined,search,offset,from:from||undefined}),summaryBudgetReached:m.summaryBudgetReached,syncedAt:state.capturedAt,health:syncedHealth(state),...(q.get('catalog')==='1'?{sources:m.sources,domains}: {})});
   }
-  if(p==='/api/reports')return json({domain:reportDomain,reports:m.reports.filter(r=>domainOfReport(r)===reportDomain).slice(0,30).map(r=>({date:r.date,domain:domainOfReport(r),created_at:r.created_at,count:r.ids.length,mode:r.mode??'selected'}))});
+  if(p==='/api/reports')return json({domain:reportDomain,reports:m.reports.filter(r=>domainOfReport(r)===reportDomain).slice(0,30).map(r=>({date:r.date,domain:domainOfReport(r),created_at:r.created_at,count:r.ids.length,mode:r.mode??'selected',...(r.review?.headline?{headline:r.review.headline}:{})}))});
   if(p.startsWith('/api/reports/')){const date=p.slice(13);if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date)return json({error:'无效日期'},400);const report=await syncedReportByDate(env.DB,date,reportDomain);return report?json(await syncedReport(env.DB,report)):json({error:'该日期还没有日报'},404);}
   if(p==='/feed.xml')return new Response(await syncedRss(env.DB,env.SITE_URL),{headers:{'content-type':'application/rss+xml; charset=utf-8','cache-control':'no-store'}});
   const feed=/^\/feed\/([a-z]{1,20})\.xml$/.exec(p)?.[1],feedDomain=domains.find(d=>d.key===feed&&d.key!==DEFAULT_SYNC_DOMAIN);

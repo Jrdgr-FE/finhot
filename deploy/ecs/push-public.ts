@@ -4,8 +4,9 @@ import { dirname } from 'node:path';
 import { createHash,randomUUID } from 'node:crypto';
 import { edgeSnapshot } from '../../packages/backend/src/publication/edge.ts';
 import { closeDb } from '../../packages/backend/src/db.ts';
+import { checkedSyncItem,prepareSnapshot } from './sync-validation.ts';
 const hash=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
-export async function pushSnapshot(snapshot:any,options:{url:string;token:string;stateFile:string;fetcher?:typeof fetch}) {
+export async function pushSnapshot(snapshotOrRead:any|(()=>Promise<any>),options:{url:string;token:string;stateFile:string;startAt?:string;fetcher?:typeof fetch}) {
   const target=new URL(options.url);if(target.protocol!=='https:'||target.username||target.password||target.pathname!=='/'||target.search||options.token.length<32)throw new Error('Invalid sync configuration');
   const fetcher=options.fetcher??fetch;
   async function call(path:string,body?:unknown){
@@ -45,21 +46,40 @@ export async function pushSnapshot(snapshot:any,options:{url:string;token:string
   let pending:Pending|null=null;
   try{pending=JSON.parse(await readFile(pendingFile,'utf8'));}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
   if(pending){
-    if(pending.retryAt>Date.now())return {deferred:true,retryAt:new Date(pending.retryAt).toISOString()};
+    const sources=new Set<string>(pending.begin.metadata.sources.map((s:any)=>s.id));
+    let repaired=false;const rejected:Array<{id:string;reason:string}>=[];
+    for(const chunk of pending.chunks)for(let i=0;i<chunk.length;i++){
+      try{const item=checkedSyncItem(chunk[i],sources);if(item!==chunk[i]){chunk[i]=item;pending.state.hashes[item.id]=hash(item);repaired=true;}}
+      catch(e){rejected.push({id:String(chunk[i]?.id??'invalid-id').slice(0,80),reason:e instanceof Error?e.message:'Invalid item'});}
+    }
+    if(!repaired&&!rejected.length&&pending.retryAt>Date.now())return {deferred:true,stalled:true,retryAt:new Date(pending.retryAt).toISOString()};
     const current=await call('head');
-    if(current.generation===pending.begin.baseGeneration||current.generation===pending.begin.generation)return finish(pending,current.generation);
+    if(current.generation===pending.begin.generation)return finish(pending,current.generation);
+    if(rejected.length){
+      // A permanently rejected payload cannot recover by retrying. Keep a private
+      // diagnostic checkpoint, then rebuild from the current publication layer.
+      await save(options.stateFile+'.rejected',pending);
+      await save(options.stateFile+'.invalid.json',{checkedAt:new Date().toISOString(),rejected});
+      await unlink(pendingFile);
+    }else if(current.generation===pending.begin.baseGeneration){
+      if(repaired){pending.retryAt=0;await save(pendingFile,pending);}
+      return finish(pending,current.generation);
+    }
     // Another publisher changed the base. Reconcile against its current head.
-    await unlink(pendingFile);
+    else await unlink(pendingFile);
   }
-  let prior:{generation:string;hashes:Record<string,string>;metadata:string;capturedAt?:string;feedHash?:string;feedIds?:string[];reconcileCursor?:string;reportCursor?:string}|null=null;
+  let prior:{generation:string;hashes:Record<string,string>;metadata:string;capturedAt?:string;feedHash?:string;feedIds?:string[];reconcileCursor?:string;reportCursor?:string;reports?:any[]}|null=null;
   try{prior=JSON.parse(await readFile(options.stateFile,'utf8'));}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
+  const rawSnapshot=typeof snapshotOrRead==='function'?await snapshotOrRead():snapshotOrRead;
   const head=await call('head'),baseGeneration=head.generation;
-  const hashes=Object.fromEntries(snapshot.items.map((i:any)=>[i.id,hash(i)])),metadata=hash(snapshot.metadata);
   const compatible=prior?.generation===baseGeneration;
-  const archive=snapshot.metadata.archiveMode==='persistent';
+  const archive=rawSnapshot.metadata.archiveMode==='persistent';
   const catalog=async(recent=false)=>{const result:string[]=[];let after='';do{const q=new URLSearchParams();if(after)q.set('after',after);if(recent)q.set('recent','1');const page=await call('catalog'+(q.size?'?'+q:''));result.push(...page.ids);after=page.next??'';}while(after);return result;};
   let known=Object.keys(prior?.hashes??{});
   if(archive&&!compatible)known=await catalog();
+  const prepared=prepareSnapshot(rawSnapshot,{startAt:options.startAt,known:new Set(known),knownReports:prior?.reports}),snapshot=prepared.snapshot;
+  await save(options.stateFile+'.invalid.json',{checkedAt:new Date().toISOString(),rejected:prepared.rejected});
+  const hashes=Object.fromEntries(snapshot.items.map((i:any)=>[i.id,hash(i)])),metadata=hash(snapshot.metadata);
   const oldFeed=archive?(compatible&&prior?.feedIds?prior.feedIds:await catalog(true)):[];
   const feed=new Set<string>(snapshot.feedIds??[]),oldFeedSet=new Set(oldFeed);
   const feedAddedIds=archive?[...feed].filter(id=>!oldFeedSet.has(id)):[],feedRemovedIds=archive?oldFeed.filter(id=>!feed.has(id)):[];
@@ -84,9 +104,9 @@ export async function pushSnapshot(snapshot:any,options:{url:string;token:string
     chunk.push(item);
   }
   if(chunk.length)chunks.push(chunk);
-  const nextState={generation,hashes:retained,metadata,capturedAt:snapshot.capturedAt,feedHash,feedIds:snapshot.feedIds,
+  const nextState={generation,hashes:retained,metadata,capturedAt:snapshot.capturedAt,feedHash,feedIds:snapshot.feedIds,reports:snapshot.metadata.reports,
     reconcileCursor:snapshot.reconcileCursor??prior?.reconcileCursor,reportCursor:snapshot.reportCursor??prior?.reportCursor};
-  const result={generation,items:snapshot.items.length,changed:items.length,capturedAt:snapshot.capturedAt};
+  const result={generation,items:snapshot.items.length,changed:items.length,capturedAt:snapshot.capturedAt,quarantined:prepared.rejected.length,skippedBeforeStart:prepared.skipped};
   const journal:Pending={begin,chunks,uploaded:0,state:nextState,result,failures:0,retryAt:0,startedAt:Date.now()};
   await save(pendingFile,journal);
   return finish(journal,baseGeneration);
@@ -96,8 +116,8 @@ if(import.meta.url===new URL(process.argv[1],'file:').href){
     const stateFile=process.env.FINHOT_SYNC_STATE??'/var/lib/finhot/public-sync-state.json';
     let prior:any=null;try{prior=JSON.parse(await readFile(stateFile,'utf8'));}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
     const since=prior?.capturedAt?new Date(Date.parse(prior.capturedAt)-5*60000).toISOString():undefined;
-    const snapshot=await edgeSnapshot({since,reconcileCursor:prior?.reconcileCursor,reportCursor:prior?.reportCursor});
-    const result=await pushSnapshot(snapshot,{url:process.env.FINHOT_SYNC_URL??'',token:process.env.FINHOT_SYNC_TOKEN??'',stateFile});console.log(JSON.stringify(result));
+    const result=await pushSnapshot(()=>edgeSnapshot({since,reconcileCursor:prior?.reconcileCursor,reportCursor:prior?.reportCursor}),{url:process.env.FINHOT_SYNC_URL??'',token:process.env.FINHOT_SYNC_TOKEN??'',stateFile,startAt:process.env.FINHOT_SYNC_START_AT});console.log(JSON.stringify(result));
+    if(result.deferred&&result.stalled)process.exitCode=1;
   }
   catch(e){console.error(e instanceof Error?e.message:'Public sync failed');process.exitCode=1;}
   finally{await closeDb();}

@@ -7,15 +7,20 @@ import { closeDb, sql } from "@aihot/backend/db";
 import { upsertMaterial } from "@aihot/backend/content/materials";
 import { stopBoss } from "@aihot/backend/jobs/queue";
 import { publishArticle, publishArticleTx } from "@aihot/backend/publication/publish";
-import { candidates, composeDaily, repairEmptyDailyReports } from "@aihot/backend/reports/compose";
+import { candidates, composeDaily, repairDeferredReviews, repairEmptyDailyReports } from "@aihot/backend/reports/compose";
+import { randomUUID } from "node:crypto";
 
 const T = tag();
 const SOURCE = `test-report-boundary-${T}`;
-const provider = await stub((hit) => ({
-  id: `report-boundary-${T}-${hit}`,
-  choices: [{ message: { content: JSON.stringify({ title: "测试导语", leadParagraph: "测试摘要", highlights: [1] }) } }],
-  usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
-}));
+let lastPrompt = "";
+const provider = await stub((hit, req) => {
+  lastPrompt = String(JSON.parse(req.body).messages?.at(-1)?.content ?? "");
+  return {
+    id: `report-boundary-${T}-${hit}`,
+    choices: [{ message: { content: JSON.stringify({ headline: "测试标题", overview: "测试总述", themes: [{ heading: "测试主题", summary: "测试主题摘要", refs: [1, 2] }] }) } }],
+    usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+  };
+});
 process.env.DEEPSEEK_BASE_URL = `${provider.url}/v1`;
 process.env.DEEPSEEK_API_KEY = "test-key";
 
@@ -24,7 +29,7 @@ before(async () => {
             VALUES (${SOURCE}, 'Report boundary test', 'rss', 'T1', 'editorial', '2100-01-01')`;
 });
 after(async () => {
-  await sql`DELETE FROM reports WHERE kind = 'daily' AND key IN ('2020-01-02', '2020-01-03', '2020-01-04', '2020-01-05', '2020-01-06', '2020-01-07', '2020-01-08')`;
+  await sql`DELETE FROM reports WHERE kind = 'daily' AND key IN ('2020-01-02', '2020-01-03', '2020-01-04', '2020-01-05', '2020-01-06', '2020-01-07', '2020-01-08', '2020-01-10', '2020-01-11')`;
   await provider.close();
   await stopBoss();
   await closeDb();
@@ -226,4 +231,61 @@ test('deployments that only display selected entries do not pay for unused repor
     assert.equal(r.content.generator.leadEnabled,false);assert.equal(r.content.lead,null);
     assert.ok(r.content.sections.some((s:any)=>s.items.some((i:any)=>i.itemId===id)));assert.equal(provider.hits(),hits);
   }finally{delete process.env.FINHOT_REPORT_LEAD_ENABLED;}
+});
+
+/** A published item that was judged but not selected (score may be null: summarised, not scored). */
+async function judged(label:string,timelineAt:string,score:number|null,source=SOURCE):Promise<string>{
+  const {articleId}=await upsertMaterial({sourceId:source,url:`https://example.com/report-review-${T}-${label}`,title:`Report review ${label}`,bodyText:`Report review ${label} body`,
+    bodyStatus:'ok',publishedAt:new Date(timelineAt),discoveredAt:new Date(timelineAt),via:'fetch'});
+  await sql`INSERT INTO analyses (article_id, input_revision, origin, relevance, category, title_zh, summary_zh, score, selected)
+            VALUES (${articleId}, 1, 'rule', 'pass', 'policy', ${`标题 ${label}`}, ${`摘要 ${label}`}, ${score}, false)`;
+  await publishArticle(articleId,{now:new Date(timelineAt)});
+  return articleId;
+}
+
+test('a daily edition reviews the window\'s important stories, selected or not, in one call',async()=>{
+  const at='2020-01-09T20:00:00Z';
+  const chosen=await selected('review-selected',at,at);
+  const strong=await judged('review-strong',at,70),weak=await judged('review-weak',at,30);
+  // One story reported by three sources (unscored): wide coverage makes it material, once.
+  const [story]=await sql`INSERT INTO stories (public_id, title) VALUES (${randomUUID()}, 'Review story') RETURNING id`;
+  const [fact]=await sql`INSERT INTO facts (public_id, story_id, title) VALUES (${`f-review-${T}`}, ${story!.id}, 'Review fact') RETURNING id`;
+  const wide:string[]=[];
+  for(const n of [1,2,3]){
+    const source=`${SOURCE}-wide-${n}`;
+    await sql`INSERT INTO sources (id, name, kind, tier, participation_mode, next_fetch_at) VALUES (${source}, ${`Wide ${n}`}, 'rss', 'T2', 'editorial', '2100-01-01')`;
+    const id=await judged(`review-wide-${n}`,at,null,source);
+    await sql`INSERT INTO fact_articles (fact_id, article_id, role) VALUES (${fact!.id}, ${id}, 'report')`;await publishArticle(id,{now:new Date(at)});wide.push(id);
+  }
+  const hits=provider.hits();
+  await composeDaily('2020-01-10');
+  assert.equal(provider.hits(),hits+1,'one call writes the review');
+  for(const label of ['标题 review-selected','标题 review-strong','标题 review-wide'])assert.ok(lastPrompt.includes(label),label);
+  assert.ok(!lastPrompt.includes('标题 review-weak'));assert.match(lastPrompt,/3 家来源/);assert.equal(lastPrompt.split('\n').filter(l=>l.includes('review-wide')).length,1,'one entry per story');
+  const [r]=await sql`SELECT content FROM reports WHERE kind='daily' AND key='2020-01-10'`;
+  assert.equal(r!.content.metrics.reviewMaterial,3);assert.equal(r!.content.review.headline,'测试标题');
+  assert.deepEqual([r!.content.lead.title,r!.content.lead.leadParagraph],['测试标题','测试总述']);
+  // The selected item ranks first, then the scored one; the list stays the selected items only.
+  assert.deepEqual(r!.content.review.themes[0].refs.map((e:any)=>e.itemId),[chosen,strong]);
+  assert.deepEqual(r!.content.sections.flatMap((s:any)=>s.items.map((i:any)=>i.itemId)),[chosen]);
+  assert.ok(!JSON.stringify(r!.content).includes(weak));
+});
+
+test('a review the budget deferred is written once it allows; a retry without one changes nothing',async()=>{
+  await selected('review-deferred','2020-01-10T20:00:00Z','2020-01-10T20:00:00Z');
+  const [budget]=await sql`SELECT per_day FROM budgets WHERE service='deepseek'`;
+  const now=new Date('2020-01-11T01:00:00Z');
+  try{
+    await sql`UPDATE budgets SET per_day=0 WHERE service='deepseek'`;
+    await composeDaily('2020-01-11');
+    const [first]=await sql`SELECT content,revision FROM reports WHERE kind='daily' AND key='2020-01-11'`;
+    assert.equal(first!.content.review,null);assert.equal(first!.content.generator.leadDeferred,true);
+    assert.deepEqual(await repairDeferredReviews(now,1),[]);
+    assert.equal((await sql`SELECT revision FROM reports WHERE kind='daily' AND key='2020-01-11'`)[0]!.revision,first!.revision);
+    await sql`UPDATE budgets SET per_day=${budget!.per_day} WHERE service='deepseek'`;
+    assert.deepEqual(await repairDeferredReviews(now,1),['2020-01-11']);
+    const [after]=await sql`SELECT content,revision FROM reports WHERE kind='daily' AND key='2020-01-11'`;
+    assert.equal(after!.content.review.headline,'测试标题');assert.equal(after!.revision,first!.revision+1);
+    assert.deepEqual(await repairDeferredReviews(now,1),[]);
+  }finally{await sql`UPDATE budgets SET per_day=${budget!.per_day} WHERE service='deepseek'`;}
 });

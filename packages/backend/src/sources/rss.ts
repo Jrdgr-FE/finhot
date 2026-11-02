@@ -3,7 +3,7 @@ import { XMLParser } from "fast-xml-parser";
 import { guardedFetch } from "../lib/http-fetch.ts";
 import { collapseWhitespace, stripTags } from "../lib/text.ts";
 import { sanitizeBody } from "../content/sanitize.ts";
-import { identityKeyForUrl } from "../lib/url.ts";
+import { identityKeyForUrl, resolveHttpUrl } from "../lib/url.ts";
 import { sha256, stableJson } from "../lib/ids.ts";
 import { FetchError, type Candidate, type SourceRow } from "./types.ts";
 import { parseLooseDate } from "./web-list.ts";
@@ -155,7 +155,11 @@ export async function fetchRss(source: SourceRow, opts: { force?: boolean } = {}
   if (channel) {
     const items = arr(doc.rss?.channel?.item ?? doc["rdf:RDF"]?.item);
     for (const it of items) {
-      const link = text(it.link) || text(it.guid);
+      // Some feeds omit the scheme (BEA) or use relative links. Opaque GUIDs are
+      // identities, not article addresses; never turn them into relative URLs.
+      const guid = text(it.guid);
+      const rawLink = text(it.link) || (/^(?:https?:\/\/|\/\/|www\.)/i.test(guid) && it.guid?.['@isPermaLink'] !== 'false' ? guid : '');
+      const link = resolveHttpUrl(rawLink, res.url);
       const title = collapseWhitespace(stripTags(text(it.title)));
       if (!link || !title) continue;
       const contentEncoded = text(it["content:encoded"]);
@@ -185,7 +189,7 @@ export async function fetchRss(source: SourceRow, opts: { force?: boolean } = {}
   const feed = doc.feed;
   if (feed) {
     for (const e of arr(feed.entry)) {
-      const link = atomLink(e.link);
+      const link = resolveHttpUrl(atomLink(e.link), res.url);
       const title = collapseWhitespace(stripTags(text(e.title)));
       if (!link || !title) continue;
       const content = text(e.content);

@@ -1,7 +1,6 @@
 // FinHot front end. One module renders every static route; the server renders
 // /articles/* and /daily/<date> itself and only loads style.css and i18n.js.
 import { t, locale, language } from './i18n.js';
-import { localizeItem, sourceName } from './content-language.js';
 
 const app = document.querySelector('#app');
 const path = location.pathname.replace(/\/$/, '') || '/';
@@ -50,16 +49,14 @@ async function api(url, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (response.status === 400 && data.error === '无效领域' && domain !== 'finance') { rememberDomain('finance'); const u = new URL(location.href); u.searchParams.delete('domain'); location.replace(u.href); }
   if (!response.ok) throw new Error(en && han(data.error) ? t('加载失败，请稍后重试') : data.error || t('加载失败，请稍后重试'));
-  if (data.items) data.items = data.items.map(item => localizeItem(item, language));
-  if (data.sources) data.sources = data.sources.map(source => ({ ...source, name: sourceName(source.id, source.name, language) }));
   return data;
 }
 const failure = error => error?.name === 'TimeoutError' || error?.name === 'AbortError' ? t('加载超时，请稍后重试。') : error instanceof TypeError ? t('网络连接失败，请稍后重试。') : error?.message || t('加载失败，请稍后重试');
 let reportList;
 const reports = () => (reportList ||= api(scoped('/api/reports')).catch(error => { reportList = null; throw error; }));
 
-// api() has already localized every item through content-language.js.
-const localize = item => item;
+// English readers get the translated headline and summary when the backend has one.
+const localize = item => en ? { ...item, title: item.title_en || (!han(item.original_title) && item.original_title) || item.title, summary: item.summary_en || item.summary } : item;
 const articleHref = item => hybrid ? '/articles/' + encodeURIComponent(item.id) : safeUrl(item.url) || '#';
 
 function row(raw, { full = false } = {}) {
@@ -172,9 +169,10 @@ function briefCard() {
       if (!latest) { body.replaceChildren(el('p', t('第一份日报将在下一个北京时间 08:00 生成。'), 'hint')); return; }
       const report = (latest.date === today() && await guess) || await api(scoped('/api/reports/' + latest.date)), list = el('ol', undefined, 'brief-list');
       for (const raw of report.items.slice(0, 5)) { const item = localize(raw), li = el('li'); li.append(link(item.title, articleHref(item)), el('small', item.source_name)); list.append(li); }
-      const count = { count: report.items.length };
-      body.replaceChildren(el('p', longDay(latest.date) + ' · ' + (report.mode === 'source-index' ? t('来源索引 {count} 条', count) : t('精选 {count} 条', count)), 'side-sub'));
-      if (report.items.length) body.append(list);
+      const count = { count: report.items.length }, written = !en && report.review?.themes?.length ? report.review : null;
+      body.replaceChildren(el('p', longDay(latest.date) + ' · ' + (written ? t('本期 {count} 条资讯', count) : report.mode === 'source-index' ? t('来源索引 {count} 条', count) : t('精选 {count} 条', count)), 'side-sub'));
+      if (written) body.append(el('p', written.headline, 'brief-headline'), el('p', written.overview.length > 90 ? written.overview.slice(0, 90) + '…' : written.overview, 'brief-overview'));
+      else if (report.items.length) body.append(list);
       body.append(link(t('阅读完整简报 →'), inDomain('/daily'), 'text-link'));
     } catch { body.replaceChildren(el('p', t('简报暂时无法加载。'), 'hint'), link(t('打开每日简报 →'), inDomain('/daily'), 'text-link')); }
   })();
@@ -196,10 +194,10 @@ function rankCard() {
   return card;
 }
 function toolCard() {
-  const card = sideCard('FinMap ' + t('金融图谱'));
+  const card = sideCard('FinMap ' + t('公司研究'));
   card.id = 'products';
   card.classList.add('tool-card');
-  card.append(el('p', t('查询金融机构，探索股东、子公司与参股关系。')), external(t('打开金融机构图谱 →'), 'https://map.finhot.fun/', 'text-link'));
+  card.append(el('p', t('追踪硬科技公司动态，连接公司档案与产业图谱。')), external(t('打开公司研究工作区 →'), 'https://map.finhot.fun/', 'text-link'));
   return card;
 }
 function sideNote() {
@@ -235,7 +233,7 @@ async function home() {
   foot.append(all, more);
   panel.append(toolbar, feed, foot);
   const ranking = rankCard(), side = el('aside', undefined, 'side'), layout = el('div', undefined, 'layout');
-  side.append(briefCard(), ranking, toolCard(), sideNote());
+  side.append(briefCard(), ranking, ...(isAi ? [] : [toolCard()]), sideNote());
   layout.append(panel, side);
   app.append(layout);
 
@@ -245,7 +243,9 @@ async function home() {
     if (query) q.set('q', query);
     all.href = inDomain('/all' + (q.size ? '?' + q : ''));
     const label = active === 'latest' ? t('{domain}动态', { domain: domainNames[domain] }) : tabLabels[active];
-    all.textContent = query ? t('在全部{group}中搜索“{query}” →', { group: label, query }) : t('查看全部{group} →', { group: label });
+    // "查看全部 AI 与硬科技动态": a space between Chinese and a Latin-led label.
+    const group = !en && /^[A-Za-z]/.test(label) ? ' ' + label : label;
+    all.textContent = query ? t('在全部{group}中搜索“{query}” →', { group, query }) : t('查看全部{group} →', { group });
   }
   function render() {
     const entry = cache.get(active);
@@ -379,7 +379,7 @@ async function explore() {
   panel.append(feed, foot);
   if (group === 'research') main.append(el('p', t('研报中的预测、评级与观点归属于原研究机构，请结合原文独立判断。'), 'notice'));
   main.append(panel);
-  side.append(briefCard(), ranking, toolCard(), sideNote());
+  side.append(briefCard(), ranking, ...(isAi ? [] : [toolCard()]), sideNote());
   layout.append(main, side);
   app.append(layout);
   feed.setAttribute('aria-busy', 'true');
@@ -431,8 +431,28 @@ async function explore() {
   await first();
 }
 
+/** A written edition's review: the overview, then each theme with links to the items it cites. */
+function reviewBlock(review, items) {
+  const byId = new Map(items.map(item => [item.id, item])), box = el('section', undefined, 'report-review');
+  box.append(el('p', review.overview, 'report-overview'));
+  for (const theme of review.themes) {
+    const part = el('section', undefined, 'report-theme'), refs = el('ul', undefined, 'report-refs');
+    part.append(el('h3', theme.heading), el('p', theme.summary));
+    for (const id of theme.ids) {
+      const item = byId.get(id);
+      if (!item) continue;
+      const li = el('li');
+      li.append(link(item.title, articleHref(item)), el('small', item.source_name));
+      refs.append(li);
+    }
+    if (refs.children.length) part.append(refs);
+    box.append(part);
+  }
+  return box;
+}
+
 async function daily() {
-  const head = pageHead(isAi ? t('每日 AI 与硬科技简报') : t('每日金融简报'), t('每天北京时间 08:00 汇总上一更新窗口；暂无精选时提供明确标注的来源索引。'));
+  const head = pageHead(isAi ? t('每日 AI 与硬科技简报') : t('每日金融简报'), t('每天北京时间 08:00 汇总过去 24 小时的大事：一篇综述，后附本期条目。'));
   api('/api/sources').then(data => domainSwitch(head, data.domains)).catch(() => {});
   const requested = /^\d{4}-\d{2}-\d{2}$/.test(params.get('date') || '') ? params.get('date') : '';
   const form = el('form', undefined, 'report-picker'), input = el('input'), button = el('button', t('查看日报'), 'btn btn-secondary btn-sm');
@@ -449,7 +469,7 @@ async function daily() {
   const archive = sideCard(t('往期简报')), list = el('ol', undefined, 'archive-list'), side = el('aside', undefined, 'side');
   archive.append(list);
   panel.append(top, feed, foot);
-  side.append(archive, toolCard(), sideNote());
+  side.append(archive, ...(isAi ? [] : [toolCard()]), sideNote());
   layout.append(panel, side);
   app.append(layout);
 
@@ -464,7 +484,7 @@ async function daily() {
       input.value = date;
       list.replaceChildren(...data.reports.slice(0, 14).map(r => {
         const li = el('li'), a = link('', inDomain('/daily?date=' + r.date), r.date === date ? 'active' : '');
-        a.append(el('span', longDay(r.date)), el('small', r.mode === 'source-index' ? t('来源索引 {count} 条', { count: r.count }) : t('精选 {count} 条', { count: r.count })));
+        a.append(el('span', longDay(r.date)), el('small', !en && r.headline ? r.headline : r.mode === 'source-index' ? t('来源索引 {count} 条', { count: r.count }) : r.mode === 'review' ? t('本期 {count} 条资讯', { count: r.count }) : t('精选 {count} 条', { count: r.count })));
         li.append(a);
         return li;
       }));
@@ -477,12 +497,16 @@ async function daily() {
       }
       top.replaceChildren(el('h2', t('正在读取 {date} 的简报…', { date })));
       const report = await api(scoped('/api/reports/' + date)), summary = el('div', undefined, 'report-summary');
-      summary.append(el('h2', longDay(date)));
-      if (report.items.length) summary.append(el('span', report.mode === 'source-index' ? t('本期收录 {count} 条资讯 · 来源索引', { count: report.items.length }) : t('本期精选 {count} 条资讯', { count: report.items.length }), 'hint'));
+      // A written edition leads with its review (Chinese); its cited items and the selected list follow.
+      const written = !en && report.review?.themes?.length ? report.review : null;
+      summary.append(el('h2', written?.headline ? written.headline : longDay(date)));
+      if (written) summary.append(el('span', longDay(date) + ' · ' + t('本期 {count} 条资讯', { count: report.items.length }), 'hint'));
+      else if (report.items.length) summary.append(el('span', report.mode === 'source-index' ? t('本期收录 {count} 条资讯 · 来源索引', { count: report.items.length }) : t('本期精选 {count} 条资讯', { count: report.items.length }), 'hint'));
       top.replaceChildren(summary);
       if (report.windowStart && report.windowEnd) top.append(el('p', t('收录窗口：{start}—{end}（北京时间）', { start: stamp(report.windowStart), end: stamp(report.windowEnd) })));
       feed.replaceChildren(...report.items.map(item => row(report.mode === 'source-index' ? item : { ...item, selected: 0 }, { full: true })));
       if (report.mode === 'source-index' && report.items.length) feed.prepend(el('p', t('本期没有入选精选，以下提供普通摘要和原文入口，供你继续阅读。'), 'notice'));
+      if (written) feed.prepend(reviewBlock(written, report.items), el('h3', t('本期条目'), 'report-list-title'));
       if (!report.items.length) feed.append(el('p', t('本期窗口内暂未收录可展示的资讯，请浏览今日动态或选择其他日期。'), 'empty'));
       foot.append(link(t('浏览最近动态 →'), inDomain('/all'), 'text-link'));
       if (hybrid && report.items.length) foot.append(link(t('本期归档页 →'), inDomain('/daily/' + date), 'text-link'));
@@ -502,7 +526,7 @@ async function about() {
   pageHead(t('关于 FinHot'), t('FinHot 是一个独立维护的金融信息产品，面向市场观察者、投资研究者，以及希望理解金融世界的人。'));
   const column = el('div', undefined, 'stack layout-single'), intro = el('section', undefined, 'panel panel-body'), products = el('div', undefined, 'product-cards');
   intro.append(el('p', t('市场消息、公司披露和研究观点，往往分散在不同平台。我们希望把发现信息、读懂要点、回到原文这几步，做得更顺手。'), 'lead'));
-  for (const [name, description, url] of [[t('FinHot 金融资讯'), t('发现市场、公司与研究动态，按来源检索，阅读每日简报。'), '/all'], [t('FinMap 金融图谱'), t('查询金融机构，探索机构及其股权关系。'), 'https://map.finhot.fun/']]) {
+  for (const [name, description, url] of [[t('FinHot 金融资讯'), t('发现市场、公司与研究动态，按来源检索，阅读每日简报。'), '/all'], [t('FinMap 公司研究'), t('追踪公司动态，探索产业链与核心技术。'), 'https://map.finhot.fun/']]) {
     const card = url.startsWith('https:') ? external('', url, 'product-card') : link('', url, 'product-card');
     card.append(el('h2', name + ' ↗'), el('p', description));
     products.append(card);
@@ -512,7 +536,7 @@ async function about() {
   principles.append(
     el('h2', t('我们的信息原则')), el('p', t('来源可追溯：保留发布机构、来源时间与原文入口。摘要有边界：只依据实际取得的材料整理，PDF 片段会注明范围。判断属于读者：资讯与研究观点不构成投资建议。')),
     el('h2', t('收录范围与更新')), el('p', t('覆盖公开市场资讯、上市公司公告、公司与行业研报，以及政策和宏观数据。公告采用抽样收录，完整披露请以巨潮、交易所等原始平台为准；付费研报与实时行情不在承诺覆盖范围内。')), el('p', t('不同信源按各自频率更新，发布时间与收录时间分别标注。来源故障或处理排队可能带来延迟。尚无摘要时保留原题和原文链接；中文摘要与经过评审的精选摘要分别标注。')),
-    el('h2', t('如何使用 FinHot')), el('p', t('在金融动态中按栏目、信源或关键词查找信息；搜索覆盖近期收录的标题、原题和摘要，最多 5,000 条，不含原文全文。每日简报在北京时间 08:00 汇总上一更新窗口，有精选时展示精选，暂无精选时提供来源索引。')), el('p', t('已经公开的独立文章和日报保留归档地址，实际撤回或下架的内容会移除。你也可以通过 RSS 在自己的阅读器中订阅精选。')),
+    el('h2', t('如何使用 FinHot')), el('p', t('在金融动态中按栏目、信源或关键词查找信息；搜索覆盖近期收录的标题、原题和摘要，最多 5,000 条，不含原文全文。每日简报在北京时间 08:00 汇总过去 24 小时的大事，写成一篇综述，后附本期条目和原文入口。')), el('p', t('已经公开的独立文章和日报保留归档地址，实际撤回或下架的内容会移除。你也可以通过 RSS 在自己的阅读器中订阅精选。')),
     el('h2', t('交流与合作')), el('p', t('FinHot 由维护者独立运营。欢迎产品建议、信源推荐与合作交流。')), link('hello@finhot.fun ↗', 'mailto:hello@finhot.fun'), el('p', t('内容更正、来源展示调整或删除请求，也可以通过站内反馈提交。')), link(t('提交反馈 →'), '/feedback'),
   );
   const sources = el('section', undefined, 'panel panel-body');
@@ -547,10 +571,11 @@ async function policy(name) {
   pageHead(name === 'terms' ? t('使用说明') : t('隐私说明'), t('维护署名：FinHot 维护者 · 联系渠道：站内反馈'));
   const panel = el('section', undefined, 'panel panel-body prose layout-single');
   app.append(panel);
-  const response = await fetch(`/${name}${en ? '.en' : ''}.txt`);
+  const response = await fetch(`/${name}.txt`);
   if (!response.ok) throw new Error(t('说明加载失败'));
+  if (en) panel.append(el('p', t('以下为已发布的中文说明。'), 'hint'));
   const text = await response.text(), body = el('div');
-  body.lang = language;
+  body.lang = 'zh-CN';
   for (const block of text.trim().split(/\n\s*\n/)) { if (block.startsWith('# ')) continue; body.append(block.startsWith('## ') ? el('h2', block.slice(3)) : el('p', block)); }
   panel.append(body, link(t('反馈与更正') + ' →', '/feedback', 'more'));
 }
@@ -627,6 +652,17 @@ const titles = { '/all': isAi ? t('AI 与硬科技动态') : t('金融动态'), 
 const routes = { '/': home, '/all': explore, '/daily': daily, '/about': about, '/terms': () => policy('terms'), '/privacy': () => policy('privacy'), '/feedback': feedback, '/admin': admin };
 const navPath = path.startsWith('/daily') ? '/daily' : path;
 document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navPath));
+// The static header and footer speak of finance. In another domain they name that domain, drop the
+// finance-only FinMap link, offer the domain's feed, and keep their links in the domain.
+if (isAi) {
+  for (const a of document.querySelectorAll('header nav a[href="/all"], .site-footer a[href="/all"]')) a.textContent = t('AI 动态');
+  const slogan = document.querySelector('.footer-brand p');
+  if (slogan) slogan.textContent = t('从 AI 与硬科技信息，到研究起点。');
+  document.querySelector('.site-footer a[href="https://map.finhot.fun/"]')?.remove();
+  for (const a of document.querySelectorAll('.site-footer a[href="/feed.xml"], link[rel="alternate"][href="/feed.xml"]')) a.setAttribute('href', '/feed/ai.xml');
+  document.querySelector('link[rel="alternate"][type="application/rss+xml"]')?.setAttribute('title', 'FinHot ' + domainNames.ai);
+  for (const a of document.querySelectorAll('header a[href], .site-footer a[href]')) if (['/', '/all', '/daily'].includes(a.getAttribute('href'))) a.setAttribute('href', inDomain(a.getAttribute('href')));
+}
 // Older homepage links carried explorer filters; keep them working.
 if (path === '/' && ['view', 'q', 'category', 'source', 'group'].some(key => params.has(key))) location.replace('/all' + location.search);
 else {
