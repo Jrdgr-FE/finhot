@@ -194,7 +194,8 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
   const judgedSelected = typeof f.selected === "boolean" ? (f.selected as boolean) : analysis?.selected ?? null;
   // Material from an isolated source reaches no public surface at all: not even a detail page. Nor does an
   // advert the pre-screen hides (industry/prescreen.ts), unless an editor set its visibility.
-  const hidden = prescreen(article.source_id, article.title).action === "hide";
+  const screen = prescreen(article.source_id, article.title);
+  const hidden = screen.action === "hide" || screen.action === "index" || relevance === "block";
   const visibility = source.participation_mode === "isolated" ? "withdrawn" : (override?.visibility ?? (hidden ? "withdrawn" : "public"));
 
   const eligible = isPoolEligible({ participationMode: source.participation_mode, relevance, title, summary });

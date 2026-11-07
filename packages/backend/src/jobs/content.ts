@@ -188,6 +188,7 @@ export async function processArticle(articleId: string, opts: { attemptTag?: str
   const screen=opts.attemptTag?null:prescreen(found.source_id,found.title);
   if(screen?.action==='index'||screen?.action==='hide'){
     await sql`UPDATE articles SET processing_state='skipped',processing_error=${`${screen.action==='hide'?'不公开':'保留来源索引'}；规则初筛 ${screen.rule}`} WHERE id=${articleId}`;
+    await publishArticle(articleId);
     return {state:screen.action==='hide'?'hidden':'source-index'};
   }
   const briefOnly=(process.env.FINHOT_BRIEF_FIRST==='true'||screen?.action==='brief')&&!opts.attemptTag;

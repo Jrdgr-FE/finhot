@@ -71,11 +71,15 @@ async function readItems(options: { all?: boolean; group?: string; source?: stri
       ${options.until?sql`AND p.discovered_at<${options.until}`:sql``}
     ORDER BY coalesce(p.published_at,p.discovered_at) DESC,p.article_id DESC LIMIT ${limit+1} OFFSET ${options.offset ?? 0}`;
   return { items: rows.slice(0,limit).map(({domains:stored,primary_domain,...row})=>{
-    const listed=(stored??[]).filter(isDomainKey),primary=isDomainKey(primary_domain)?primary_domain:listed[0]??DEFAULT_DOMAIN,domains=listed.length?listed:[primary];
+    const listed=(stored??[]).filter(isDomainKey),primary=isDomainKey(primary_domain)?primary_domain:listed[0]??DEFAULT_DOMAIN;
+    const rawDomains=listed.length?listed:[primary];
+    const hasFinSignal=!row.source_id.startsWith('ai-')||/财报|营收|利润|融资|估值|并购|收购|IPO|上市|股价|市值|股市|美股|A股|港股|芯片股|抛售|大跌|大涨|基金|银行|证券|保险|央行|美联储|利率|汇率|关税|债券|\b(?:earnings|revenue|profit|raises|funding|valuation|IPO|acquir|merger|stocks?|shares)\b/i.test(`${row.title} ${row.original_title||''}`);
+    const domains=rawDomains.length>1&&!hasFinSignal?rawDomains.filter(d=>d!=='finance'):rawDomains;
     // A finance-only item carries no domain fields (absent means finance), so its synced JSON and
     // hash stay as they were before domains and the deploy does not re-upload the whole feed.
     const own=domains.length===1&&domains[0]===DEFAULT_DOMAIN?{}:{domains,primary_domain:primary};
-    return {...row,...own,category:basicCategory(row.source_id,row.original_title||row.title,row.category,primary)};
+    const catDomain=domains.includes('ai')?'ai':primary;
+    return {...row,...own,category:basicCategory(row.source_id,`${row.title} ${row.original_title||''}`,row.category,catDomain)};
   }), hasMore: rows.length>limit, summaryBudgetReached: await edgeBudgetReached(db) };
 }
 export async function edgeItems(options: Parameters<typeof readItems>[0]={}) { return readItems(options,sql,40); }
@@ -95,10 +99,17 @@ export async function edgeSources(db:Db=sql) {
 
 /** Only public DTOs leave the server. A repeatable-read transaction captures one publication state. */
 export function sourceIndex(items:any[],limit=20):any[]{
-  const sorted=[...items].sort((a,b)=>Number(!!b.summary)-Number(!!a.summary));
-  const groups=new Map<string,any[]>();for(const item of sorted){const list=groups.get(item.source_id)??[];list.push(item);groups.set(item.source_id,list);}
-  const result:any[]=[];while(result.length<limit){let added=false;for(const list of groups.values()){if(list.length&&result.length<limit){result.push(list.shift());added=true;}}if(!added)break;}
-  return result;
+  const roundRobin=(pool:any[],cap:number)=>{
+    const groups=new Map<string,any[]>();
+    for(const item of pool){const list=groups.get(item.source_id)??[];list.push(item);groups.set(item.source_id,list);}
+    const out:any[]=[];
+    while(out.length<cap){let added=false;for(const list of groups.values()){if(list.length&&out.length<cap){out.push(list.shift());added=true;}}if(!added)break;}
+    return out;
+  };
+  const withSummary=items.filter(i=>i.summary&&String(i.summary).trim());
+  const withoutSummary=items.filter(i=>!i.summary||!String(i.summary).trim()).sort((a,b)=>Number(/[\u3400-\u9fff]/.test(b.title??''))-Number(/[\u3400-\u9fff]/.test(a.title??'')));
+  const first=roundRobin(withSummary,limit);
+  return first.length>=limit?first:[...first,...roundRobin(withoutSummary,limit-first.length)];
 }
 /** A daily edition not saved yet (a preview of a change shows it in place of the saved one). */
 export interface DraftReport {key:string;generated_at:Date;content:any;domain:DomainKey}
@@ -168,7 +179,10 @@ export async function edgeSnapshot(options:{since?:string;reconcileCursor?:strin
     const coverage={total:items.length,summaries:items.filter(i=>i.summary.trim()).length,bodies:items.filter(i=>i.body_status==='fetched').length,
       awaitingBody:items.filter(i=>i.state==='awaiting-body').length,awaitingSummary:items.filter(i=>!i.summary.trim()&&i.body_status==='fetched').length,
       unavailableBody:items.filter(i=>['failed','too-large','no-text'].includes(i.body_status)).length};
-    return JSON.parse(JSON.stringify({capturedAt,items:[...archived.values()],feedIds:items.filter(i=>!shownIds||shownIds.has(i.id)).map(i=>i.id),visibleIds:[...visibleIds],reconcileCursor,reportCursor,
+    const rawFeed=items.filter(i=>!shownIds||shownIds.has(i.id));
+    const summarizedFeed=rawFeed.filter(i=>i.summary&&String(i.summary).trim());
+    const feedIds=(summarizedFeed.length?summarizedFeed:rawFeed).map(i=>i.id);
+    return JSON.parse(JSON.stringify({capturedAt,items:[...archived.values()],feedIds,visibleIds:[...visibleIds],reconcileCursor,reportCursor,
       metadata:{...catalog,archiveMode:'persistent',coverage,summaryBudgetReached,budgets,reports:reportDtos}}));
   });
 }
