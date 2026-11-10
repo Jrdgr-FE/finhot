@@ -68,11 +68,11 @@ async function publicRead(request:Request,env:Env,state:NonNullable<Awaited<Retu
   if(p.startsWith('/articles/')){
     const id=/^\/articles\/([a-zA-Z0-9_-]{1,80})$/.exec(p)?.[1];
     if(!id)return json({error:'文章不存在'},404);
-    const item=await syncedItem(env.DB,id);return item?articleHtml(item,m,env.SITE_URL,u.searchParams.get('lang')==='zh-CN'?'zh-CN':'en'):json({error:'文章不存在或已下架'},404);
+    const item=await syncedItem(env.DB,id);return item?articleHtml(item,m,env.SITE_URL,u.searchParams.get('lang')==='en'?'en':'zh-CN'):json({error:'文章不存在或已下架'},404);
   }
   if(p.startsWith('/daily/')){
     const date=p.slice(7),report=await syncedReportByDate(env.DB,date,reportDomain);
-    return report?reportHtml(await syncedReport(env.DB,report),env.SITE_URL,u.searchParams.get('lang')==='zh-CN'?'zh-CN':'en',domains.find(d=>d.key===reportDomain)):json({error:'该日期还没有日报'},404);
+    return report?reportHtml(await syncedReport(env.DB,report),env.SITE_URL,u.searchParams.get('lang')==='en'?'en':'zh-CN',domains.find(d=>d.key===reportDomain)):json({error:'该日期还没有日报'},404);
   }
   if(p==='/sitemap.xml')return new Response(await syncedSitemap(env.DB,state,env.SITE_URL),{headers:{'content-type':'application/xml; charset=utf-8','cache-control':'no-store'}});
   if(p==='/api/health')return json(syncedHealth(state));

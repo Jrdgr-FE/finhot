@@ -87,7 +87,7 @@ const getSourcesCatalog = () => (sourcesCatalogPromise ||= api('/api/sources').c
 
 // English readers get the translated headline and summary when the backend has one.
 const localize = item => en ? { ...item, title: item.title_en || (!han(item.original_title) && item.original_title) || item.title, summary: item.summary_en || item.summary } : item;
-const articleHref = item => hybrid ? '/articles/' + encodeURIComponent(item.id) : safeUrl(item.url) || '#';
+const articleHref = item => hybrid ? '/articles/' + encodeURIComponent(item.id) + (en ? '?lang=en' : '') : safeUrl(item.url) || '#';
 
 function displayCategory(item) {
   if (item.category && domainCategories[domain]?.includes(item.category)) return item.category;
@@ -221,7 +221,7 @@ function closeArticleDrawer() {
   document.body.classList.remove('drawer-open');
 }
 
-function openArticleDrawer(raw) {
+function openArticleDrawer(raw, clusterRoot = raw) {
   const item = localize(raw);
   if (!drawerPanel) {
     drawerScrim = el('button', undefined, 'article-drawer-scrim');
@@ -287,6 +287,30 @@ function openArticleDrawer(raw) {
     summaryBox.append(el('p', t('材料范围：') + item.material_scope, 'article-drawer-orig'));
   }
   content.append(summaryBox);
+
+  const clusterMembers = clusterRoot?.related_items?.length ? [clusterRoot, ...clusterRoot.related_items] : [];
+  if (clusterMembers.length > 1) {
+    const relBox = el('div', undefined, 'article-drawer-related');
+    relBox.append(el('div', t('同题多源交叉印证（共 {count} 家信源）', { count: clusterMembers.length }), 'article-drawer-related-title'));
+    const relList = el('div', undefined, 'article-drawer-related-list');
+    for (const member of clusterMembers) {
+      const locMember = localize(member);
+      const isCurrent = member.id === raw.id;
+      const btn = el('button', undefined, 'article-drawer-related-item' + (isCurrent ? ' is-active' : ''));
+      btn.type = 'button';
+      const head = el('div', undefined, 'article-drawer-related-head');
+      head.append(el('strong', member.source_name));
+      if (isCurrent) head.append(el('span', t('当前查看'), 'badge badge-accent'));
+      const sub = el('span', locMember.title, 'article-drawer-related-headline');
+      btn.append(head, sub);
+      btn.onclick = () => {
+        if (!isCurrent) openArticleDrawer(member, clusterRoot);
+      };
+      relList.append(btn);
+    }
+    relBox.append(relList);
+    content.append(relBox);
+  }
 
   const ventures = matchVentures(item);
   if (ventures.length) {
@@ -378,6 +402,27 @@ function row(raw, { full = false } = {}) {
   const url = safeUrl(item.url);
   if (url && hybrid) meta.append(external(t('原文 ↗'), url, 'row-out'));
   body.append(meta);
+  if (Array.isArray(raw.related_items) && raw.related_items.length > 0) {
+    const relBar = el('div', undefined, 'row-related');
+    relBar.append(el('span', t('同题多源 ({count})', { count: raw.related_items.length }), 'row-related-label'));
+    for (const rel of raw.related_items) {
+      const locRel = localize(rel);
+      const pill = link(rel.source_name, articleHref(rel), 'row-related-pill');
+      pill.title = `${rel.source_name}：${locRel.title}`;
+      if (!hybrid) {
+        pill.target = '_blank';
+        pill.rel = 'noopener noreferrer';
+      } else {
+        pill.addEventListener('click', event => {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          openArticleDrawer(rel, raw);
+        });
+      }
+      relBar.append(pill);
+    }
+    body.append(relBar);
+  }
   article.append(time, body);
   return article;
 }
@@ -595,7 +640,7 @@ async function home(signal) {
     try {
       const data = await page(key, 0);
       if (signal?.aborted) return;
-      homeFeedCache.set(cacheKey(key), { items: data.items, hasMore: data.hasMore, at: Date.now() });
+      homeFeedCache.set(cacheKey(key), { items: data.items, hasMore: data.hasMore, nextOffset: data.nextOffset ?? data.items.length, at: Date.now() });
       if (active === key) render();
     } catch (error) {
       if (signal?.aborted || active !== key || quiet) return;
@@ -630,8 +675,16 @@ async function home(signal) {
     more.disabled = true;
     more.textContent = t('正在加载…');
     try {
-      const data = await page(key, entry.items.length), seen = new Set(entry.items.map(item => item.id)), fresh = data.items.filter(item => !seen.has(item.id));
+      const reqOffset = entry.nextOffset ?? entry.items.length;
+      const data = await page(key, reqOffset);
+      const seen = new Set();
+      for (const item of entry.items) {
+        seen.add(item.id);
+        for (const r of item.related_items || []) seen.add(r.id);
+      }
+      const fresh = data.items.filter(item => !seen.has(item.id));
       entry.items.push(...fresh);
+      entry.nextOffset = data.nextOffset ?? (reqOffset + data.items.length);
       entry.hasMore = data.hasMore && fresh.length > 0;
       if (active === key) { feed.append(...fresh.map(item => row(item))); more.hidden = !entry.hasMore; }
       more.textContent = t('加载更多');
@@ -728,9 +781,12 @@ async function explore(signal) {
     const rawFresh = data.items.filter(item => !shown.has(item.id));
     const withSum = rawFresh.filter(i => i.summary && i.summary.trim());
     const fresh = withSum.length ? withSum : rawFresh;
-    fresh.forEach(item => shown.add(item.id));
+    fresh.forEach(item => {
+      shown.add(item.id);
+      for (const r of item.related_items || []) shown.add(r.id);
+    });
     feed.append(...fresh.map(item => row(item)));
-    offset += data.items.length;
+    offset = data.nextOffset ?? (offset + data.items.length);
     foot.replaceChildren();
     if (data.hasMore && fresh.length) foot.append(el('span', t('已显示 {count} 条', { count: shown.size }), 'hint'), more);
     else if (shown.size) foot.append(el('span', t('共 {count} 条', { count: shown.size }), 'hint'));
@@ -783,7 +839,14 @@ async function explore(signal) {
 
 /** A written edition's review: the overview, then each theme with links to the items it cites. */
 function reviewBlock(review, items) {
-  const byId = new Map(items.map(item => [item.id, item])), box = el('section', undefined, 'report-review');
+  const byId = new Map();
+  for (const item of items) {
+    byId.set(item.id, item);
+    for (const rel of item.related_items || []) {
+      if (!byId.has(rel.id)) byId.set(rel.id, rel);
+    }
+  }
+  const box = el('section', undefined, 'report-review');
   box.append(el('p', review.overview, 'report-overview'));
   for (const theme of review.themes) {
     const part = el('section', undefined, 'report-theme'), refs = el('ul', undefined, 'report-refs');
@@ -871,7 +934,7 @@ async function daily(signal) {
       if (written) feed.prepend(reviewBlock(written, report.items), el('h3', t('本期条目'), 'report-list-title'));
       if (!report.items.length) feed.append(el('p', t('本期窗口内暂未收录可展示的资讯，请浏览今日动态或选择其他日期。'), 'empty'));
       foot.append(link(t('浏览最近动态 →'), inDomain('/all'), 'text-link'));
-      if (hybrid && report.items.length) foot.append(link(t('本期归档页 →'), inDomain('/daily/' + date), 'text-link'));
+      if (hybrid && report.items.length) foot.append(link(t('本期归档页 →'), inDomain('/daily/' + date + (en ? '?lang=en' : '')), 'text-link'));
     } catch (error) {
       if (signal?.aborted) return;
       top.replaceChildren(el('h2', t('简报加载失败')));

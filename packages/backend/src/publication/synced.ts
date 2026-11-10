@@ -1,6 +1,7 @@
 // Cloudflare serves only a replica of DTOs exported by the PostgreSQL publication boundary.
 import type { D1Database } from '@cloudflare/workers-types';
 import { escapeXml } from './free.ts';
+import { clusterItemsWithMap, clusterReportItems, type RelatedItemBrief } from './cluster.ts';
 export interface SyncDomain {key:string;label:string;labelEn:string;categories:string[]}
 /** A daily edition's written review: headline, overview and themes, each citing items of the edition. */
 export interface SyncReview {headline:string;overview:string;themes:Array<{heading:string;summary:string;ids:string[]}>}
@@ -22,6 +23,8 @@ export interface SyncItem {
   title_en?:string|null;summary_en?:string|null;
   /** The item's domains, ranked (the first is the primary); absent on items synced before domains (finance). */
   domains?:string[];primary_domain?:string;
+  /** Other outlets covering the same occurrence within the window ("同题多源"). */
+  related_items?:RelatedItemBrief[];
 }
 export async function syncedState(db:D1Database) {
   const row=await db.prepare("SELECT generation,captured_at,contact_at,metadata_json FROM server_sync_state WHERE key='active'").first<{generation:string;captured_at:string;contact_at:string;metadata_json:string}>();
@@ -53,16 +56,41 @@ export async function syncedItems(db:D1Database,options:{all?:boolean;category?:
   if(options.sourceIds){where.push(options.sourceIds.length?`source_id IN (${options.sourceIds.map(()=>'?').join(',')})`:'0=1');args.push(...options.sourceIds);}
   // Literal substring search avoids D1's 50-byte LIKE pattern limit, including long Chinese terms.
   if(options.search){where.push('instr(lower(search_text),lower(?))>0');args.push(options.search);}
-  const limit=Math.max(1,Math.min(40,options.limit??20));
-  const rows=await db.prepare(`SELECT data_json FROM server_sync_items WHERE ${where.join(' AND ')} ORDER BY sort_at DESC,id DESC LIMIT ? OFFSET ?`).bind(...args,limit+1,options.offset??0).all<{data_json:string}>();
-  return{items:rows.results.slice(0,limit).map(r=>JSON.parse(r.data_json) as SyncItem),hasMore:rows.results.length>limit};
+  const limit=Math.max(1,Math.min(40,options.limit??20)),offset=options.offset??0;
+  const sqlText=`SELECT data_json FROM server_sync_items WHERE ${where.join(' AND ')} ORDER BY sort_at DESC,id DESC LIMIT ? OFFSET ?`;
+  const rows=await db.prepare(sqlText).bind(...args,limit+1,offset).all<{data_json:string}>();
+  const parsed=rows.results.map(r=>JSON.parse(r.data_json) as SyncItem);
+  let res=clusterItemsWithMap(parsed,undefined,limit);
+  let exhausted=rows.results.length<=limit;
+  if(!res.hasMoreClusters&&!exhausted){
+    const extraCount=Math.min(40,(limit-res.items.length)*3+6);
+    const extra=await db.prepare(sqlText).bind(...args,extraCount,offset+limit+1).all<{data_json:string}>();
+    if(extra.results.length<extraCount)exhausted=true;
+    res=clusterItemsWithMap([...parsed,...extra.results.map(r=>JSON.parse(r.data_json) as SyncItem)],undefined,limit);
+  }
+  const hasMore=res.hasMoreClusters||!exhausted;
+  return{items:res.items.slice(0,limit),hasMore,nextOffset:offset+res.consumedCount};
 }
 export async function syncedReport(db:D1Database,report:SyncMetadata['reports'][number]) {
   // Joining the current published replica means a withdrawn citation vanishes from old reports too.
-  const rows=await db.prepare(`SELECT data_json FROM server_sync_items WHERE ${(report.mode??'selected')==='selected'?'selected=1':'1=1'} AND id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(report.ids)).all<{data_json:string}>();
+  const selWhere=(report.mode??'selected')==='selected'?'selected=1':'1=1';
+  const rows=await db.prepare(`SELECT data_json FROM server_sync_items WHERE ${selWhere} AND id IN (SELECT value FROM json_each(?))`).bind(JSON.stringify(report.ids)).all<{data_json:string}>();
   const byId=new Map(rows.results.map(r=>{const item=JSON.parse(r.data_json) as SyncItem;return[item.id,item];}));
-  const review=report.review?{...report.review,themes:report.review.themes.map(t=>({...t,ids:t.ids.filter(id=>byId.has(id))}))}:undefined;
-  return{date:report.date,domain:domainOfReport(report),created_at:report.created_at,mode:report.mode??'selected',windowStart:report.windowStart,windowEnd:report.windowEnd,...(review?{review}:{}),items:report.ids.flatMap(id=>byId.has(id)?[byId.get(id)!]:[])};
+  const rawItems=report.ids.flatMap(id=>byId.has(id)?[byId.get(id)!]:[]);
+  const citedIds=new Set<string>((report.review?.themes??[]).flatMap(t=>t.ids).filter(id=>byId.has(id)));
+  const dom=domainOfReport(report);
+  let windowCandidates:SyncItem[]=[];
+  if(report.windowStart&&report.windowEnd&&SYNC_DOMAIN_KEY.test(dom)){
+    const domWhere=dom===DEFAULT_SYNC_DOMAIN?`(domains IS NULL OR domains LIKE '%,finance,%')`:`domains LIKE '%,${dom},%'`;
+    const winRows=await db.prepare(`SELECT data_json FROM server_sync_items WHERE ${selWhere} AND ${domWhere} AND sort_at>=? AND sort_at<=? ORDER BY sort_at DESC,id DESC LIMIT 120`).bind(report.windowStart,report.windowEnd).all<{data_json:string}>();
+    windowCandidates=winRows.results
+      .map(r=>JSON.parse(r.data_json) as SyncItem)
+      .filter(c=>Boolean(c.summary&&c.summary.trim())&&/[\u3400-\u9fff]/.test(c.title||''));
+  }
+  const {items,representativeById}=clusterReportItems(rawItems,windowCandidates,Math.min(20,rawItems.length),citedIds);
+  const shownById=new Set(items.map(i=>i.id));
+  const review=report.review?{...report.review,themes:report.review.themes.map(t=>({...t,ids:[...new Set(t.ids.map(id=>representativeById.get(id)??id))].filter(id=>shownById.has(id))}))}:undefined;
+  return{date:report.date,domain:dom,created_at:report.created_at,mode:report.mode??'selected',windowStart:report.windowStart,windowEnd:report.windowEnd,...(review?{review}:{}),items};
 }
 export async function syncedReportByDate(db:D1Database,date:string,domain=DEFAULT_SYNC_DOMAIN){
   const row=await db.prepare('SELECT data_json FROM server_sync_reports WHERE domain=? AND date=?').bind(domain,date).first<{data_json:string}>();
